@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Luma",
+    "slug": "luma",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "luma",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#111111"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.luma.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Luma utilise ta position pour centrer la carte sur toi et trouver les événements proches.",
+        "NSLocationAlwaysUsageDescription": "Luma utilise ta position pour les notifications d'événements proches.",
+        "NSPhotoLibraryUsageDescription": "Luma accède à tes photos pour que tu puisses choisir une photo de profil.",
+        "NSCameraUsageDescription": "Luma accède à ta caméra pour prendre une photo de profil."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111111"
+      },
+      "package": "com.luma.app",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-location",
+      "expo-image-picker",
+      [
+        "expo-notifications",
+        {
+          "color": "#2563EB"
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "COLLE_TON_PROJECT_ID_ICI"
+      }
+    }
+  }
+}
