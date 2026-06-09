@@ -21,6 +21,7 @@ import NotificationsScreen from './screens/NotificationsScreen';
 import AjoutEvenementScreen from './screens/AjoutEvenementScreen';
 import DetailEvenementScreen from './screens/DetailEvenementScreen';
 import DetailEvenementOfficielScreen from './screens/DetailEvenementOfficiel';
+import DetailLieuScreen from './screens/DetailLieu';
 import ConversationScreen from './screens/ConversationScreen';
 import CompteScreen from './screens/CompteScreen';
 import ProfilPublicScreen from './screens/ProfilPublicScreen';
@@ -191,6 +192,7 @@ function Navigation() {
             <Stack.Screen name="AjoutEvenement" component={AjoutEvenementScreen} />
             <Stack.Screen name="DetailEvenement" component={DetailEvenementScreen} />
             <Stack.Screen name="DetailEvenementOfficiel" component={DetailEvenementOfficielScreen} />
+            <Stack.Screen name="DetailLieu" component={DetailLieuScreen} />
             <Stack.Screen name="Conversation" component={ConversationScreen} />
             <Stack.Screen name="ProfilPublic" component={ProfilPublicScreen} />
             <Stack.Screen name="CGU" component={CGUScreen} />

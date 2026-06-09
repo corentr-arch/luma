@@ -5,13 +5,15 @@ import {
 import MapView from 'react-native-map-clustering';
 import { Marker, Circle } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEvenements } from '../EvenementsContext';
-import { useApp } from '../AppContext';
+import { useApp, CATEGORIES, formatDateParis } from '../AppContext';
 import { supabase } from '../supabase';
+
+const PARIS = { latitude: 48.8566, longitude: 2.3522 };
 
 const RAYONS = [
   { label: '1 km',  valeur: 1000 },
@@ -19,33 +21,6 @@ const RAYONS = [
   { label: '10 km', valeur: 10000 },
   { label: '20 km', valeur: 20000 },
 ];
-
-const PARIS = { latitude: 48.8566, longitude: 2.3522 };
-const MARQUEUR_TAILLE = 30;
-const MARQUEUR_FIXE_TAILLE = 26;
-const MARQUEUR_OFFICIEL_TAILLE = 24;
-const MARQUEUR_SALLE_TAILLE = 26;
-const MARQUEUR_LIEU_TAILLE = 20;
-const ZOOM_MIN_LIEUX = 0.08;
-
-// Couleurs spéciales par type de lieu/événement
-const COULEUR_SALLE    = '#F97316'; // Orange — salles de concerts
-const COULEUR_CINEMA   = '#9F1239'; // Bordeaux — cinémas
-const COULEUR_THEATRE  = '#4F46E5'; // Indigo — théâtres
-const COULEUR_SPORT    = '#16A34A'; // Vert foncé — compétitions sportives
-const COULEUR_GAMING   = '#7C3AED'; // Violet — jeux vidéo / esport
-
-const LIEUX_CONFIG = {
-  'Santé':            { couleur: '#EF4444', icone: 'heart',      bg: '#FEE2E2' },
-  'Eau potable':      { couleur: '#3B82F6', icone: 'water',      bg: '#DBEAFE' },
-  'Toilettes':        { couleur: '#8B5CF6', icone: 'man',        bg: '#EDE9FE' },
-  'Sport':            { couleur: '#10B981', icone: 'fitness',    bg: '#D1FAE5' },
-  'Nature':           { couleur: '#22C55E', icone: 'leaf',       bg: '#DCFCE7' },
-  'Culture':          { couleur: '#F59E0B', icone: 'library',    bg: '#FEF3C7' },
-  'Marché':           { couleur: '#EC4899', icone: 'storefront', bg: '#FCE7F3' },
-  'Mobilité':         { couleur: '#6366F1', icone: 'bicycle',    bg: '#EEF2FF' },
-  'Services publics': { couleur: '#64748B', icone: 'business',   bg: '#F1F5F9' },
-};
 
 const FILTRES_DATE = [
   { key: 'tous',          label: 'Toutes dates',  icon: 'calendar-outline' },
@@ -56,31 +31,45 @@ const FILTRES_DATE = [
   { key: 'date_precise',  label: 'Date précise',  icon: 'search-outline' },
 ];
 
-// Détecte le type spécial d'un événement officiel
-function detecterTypeSpecial(ev) {
-  const titre = (ev.titre || '').toLowerCase();
-  const lieu = (ev.lieu || '').toLowerCase();
-  const desc = (ev.description || '').toLowerCase();
-  const cat = (ev.categorie || '').toLowerCase();
-  const salle = (ev.salle || '').toLowerCase();
-  const tout = titre + ' ' + lieu + ' ' + desc + ' ' + salle;
-
-  if (ev.source === 'openagenda') return 'salle';
-  if (tout.includes('gaming') || tout.includes('esport') || tout.includes('jeux vidéo') || tout.includes('jeux video') || tout.includes('game') || tout.includes('nintendo') || tout.includes('playstation')) return 'gaming';
-  if (tout.includes('compétition') || tout.includes('competition') || tout.includes('match') || tout.includes('tournoi') || tout.includes('championnat') || (cat === 'sport' && (tout.includes('finale') || tout.includes('coupe')))) return 'sport_competition';
-  if (lieu.includes('cinéma') || lieu.includes('cinema') || lieu.includes('ugc') || lieu.includes('mk2') || lieu.includes('pathé') || lieu.includes('pathe') || lieu.includes('gaumont') || lieu.includes('rex')) return 'cinema';
-  if (lieu.includes('théâtre') || lieu.includes('theatre') || lieu.includes('comédie') || lieu.includes('comedie') || lieu.includes('odéon') || lieu.includes('odeon')) return 'theatre';
-  return 'officiel';
-}
-
-const TYPE_SPECIAL_CONFIG = {
-  salle:             { couleur: COULEUR_SALLE,   icone: 'musical-notes',  label: 'Salle de concert' },
-  cinema:            { couleur: COULEUR_CINEMA,  icone: 'film',           label: 'Cinéma' },
-  theatre:           { couleur: COULEUR_THEATRE, icone: 'comedy',         label: 'Théâtre' },
-  sport_competition: { couleur: COULEUR_SPORT,   icone: 'trophy',         label: 'Compétition sportive' },
-  gaming:            { couleur: COULEUR_GAMING,  icone: 'game-controller', label: 'Jeux vidéo / Esport' },
-  officiel:          { couleur: '#2563EB',        icone: 'calendar-outline', label: 'Agenda Paris' },
+// Catégories de lieux — précises
+const LIEUX_CATEGORIES = {
+  'Salle de concert': { couleur: '#A855F7', icone: 'musical-notes', bg: '#F3E8FF' },
+  'Théâtre':          { couleur: '#4F46E5', icone: 'easel',         bg: '#EEF2FF' },
+  'Cinéma':           { couleur: '#9F1239', icone: 'film',          bg: '#FFF1F2' },
+  'Opéra':            { couleur: '#7C3AED', icone: 'mic',           bg: '#EDE9FE' },
+  'Musée':            { couleur: '#D97706', icone: 'image',         bg: '#FFFBEB' },
+  'Stade':            { couleur: '#2563EB', icone: 'trophy',        bg: '#DBEAFE' },
+  'Salle de sport':   { couleur: '#16A34A', icone: 'fitness',       bg: '#DCFCE7' },
+  'Défibrillateur':   { couleur: '#EF4444', icone: 'heart',         bg: '#FEE2E2' },
+  'Point d\'eau':     { couleur: '#3B82F6', icone: 'water',         bg: '#DBEAFE' },
+  'Toilettes':        { couleur: '#8B5CF6', icone: 'man',           bg: '#EDE9FE' },
+  'Vélib':            { couleur: '#6366F1', icone: 'bicycle',       bg: '#EEF2FF' },
+  'Marché':           { couleur: '#EF4444', icone: 'storefront',    bg: '#FEE2E2' },
+  'Jardin':           { couleur: '#22C55E', icone: 'leaf',          bg: '#DCFCE7' },
+  'Mairie':           { couleur: '#64748B', icone: 'business',      bg: '#F1F5F9' },
 };
+
+function getLieuConfig(categorie, sousCategorie) {
+  const sc = (sousCategorie || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const cat = (categorie || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  if (sc.includes('concert') || sc.includes('opera') || sc.includes('musical') || cat === 'musique')
+    return LIEUX_CATEGORIES['Salle de concert'];
+  if (sc.includes('cinema')) return LIEUX_CATEGORIES['Cinéma'];
+  if (sc.includes('theatre')) return LIEUX_CATEGORIES['Théâtre'];
+  if (sc.includes('opera')) return LIEUX_CATEGORIES['Opéra'];
+  if (sc.includes('musee') || sc.includes('fondation')) return LIEUX_CATEGORIES['Musée'];
+  if (sc.includes('stade')) return LIEUX_CATEGORIES['Stade'];
+  if (sc.includes('sport')) return LIEUX_CATEGORIES['Salle de sport'];
+  if (sc.includes('defibrillateur')) return LIEUX_CATEGORIES['Défibrillateur'];
+  if (sc.includes('fontaine') || sc.includes('eau')) return LIEUX_CATEGORIES['Point d\'eau'];
+  if (sc.includes('sanisette') || sc.includes('toilette')) return LIEUX_CATEGORIES['Toilettes'];
+  if (sc.includes('velib')) return LIEUX_CATEGORIES['Vélib'];
+  if (sc.includes('marche')) return LIEUX_CATEGORIES['Marché'];
+  if (sc.includes('jardin') || sc.includes('parc') || sc.includes('espace vert')) return LIEUX_CATEGORIES['Jardin'];
+  if (sc.includes('mairie')) return LIEUX_CATEGORIES['Mairie'];
+  return CATEGORIES[categorie] || { couleur: '#6B7280', icone: 'location', bg: '#F3F4F6' };
+}
 
 function distanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -96,231 +85,181 @@ function getPlageDates(filtre, datePrecise) {
   const maintenant = new Date();
   const auj = new Date(maintenant); auj.setHours(0, 0, 0, 0);
   switch (filtre) {
-    case 'ce_soir': { const f = new Date(auj); f.setHours(23, 59, 59, 999); return { debut: maintenant, fin: f }; }
-    case 'demain': { const d = new Date(auj); d.setDate(d.getDate() + 1); const f = new Date(d); f.setHours(23, 59, 59, 999); return { debut: d, fin: f }; }
-    case 'ce_weekend': { const j = maintenant.getDay(); const d = new Date(auj); d.setDate(d.getDate() + (j === 6 ? 0 : 6 - j)); const f = new Date(d); f.setDate(f.getDate() + 1); f.setHours(23, 59, 59, 999); return { debut: d, fin: f }; }
-    case 'cette_semaine': { const f = new Date(auj); f.setDate(f.getDate() + (7 - f.getDay())); f.setHours(23, 59, 59, 999); return { debut: maintenant, fin: f }; }
-    case 'date_precise': { if (!datePrecise) return null; const d = new Date(datePrecise); d.setHours(0, 0, 0, 0); const f = new Date(datePrecise); f.setHours(23, 59, 59, 999); return { debut: d, fin: f }; }
+    case 'ce_soir': {
+      // Ce soir = maintenant jusqu'à 23h59 aujourd'hui
+      const f = new Date(auj); f.setHours(23, 59, 59, 999);
+      return { debut: maintenant, fin: f };
+    }
+    case 'demain': {
+      const d = new Date(auj); d.setDate(d.getDate() + 1);
+      const f = new Date(d); f.setHours(23, 59, 59, 999);
+      return { debut: d, fin: f };
+    }
+    case 'ce_weekend': {
+      const j = maintenant.getDay();
+      const d = new Date(auj); d.setDate(d.getDate() + (j === 6 ? 0 : 6 - j));
+      const f = new Date(d); f.setDate(f.getDate() + 1); f.setHours(23, 59, 59, 999);
+      return { debut: d, fin: f };
+    }
+    case 'cette_semaine': {
+      const f = new Date(auj); f.setDate(f.getDate() + (7 - f.getDay())); f.setHours(23, 59, 59, 999);
+      return { debut: maintenant, fin: f };
+    }
+    case 'date_precise': {
+      if (!datePrecise) return null;
+      const d = new Date(datePrecise); d.setHours(0, 0, 0, 0);
+      const f = new Date(datePrecise); f.setHours(23, 59, 59, 999);
+      return { debut: d, fin: f };
+    }
     default: return null;
   }
 }
 
-// ── Marqueurs ────────────────────────────────────────────────────────────────
+// ── MARQUEURS mémorisés — React.memo empêche tout re-render inutile ───────────
 
-// Marqueur communautaire temporaire
-const MarqueurTemporaire = ({ point, estSelectionne, onPress, CATEGORIES_COULEURS, CAT_ICONES }) => {
-  const cat = CATEGORIES_COULEURS[point.categorie] || { forte: '#888' };
-  const taille = estSelectionne ? MARQUEUR_TAILLE * 1.35 : MARQUEUR_TAILLE;
+const MarqueurCommunautaire = memo(({ id, latitude, longitude, categorie, estSelectionne, onPress }) => {
+  const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
   return (
     <Marker
-      coordinate={{ latitude: point.latitude, longitude: point.longitude }}
+      coordinate={{ latitude, longitude }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={estSelectionne}
+      tracksViewChanges={false}
       calloutEnabled={false}
-      identifier={`ev_${point.id}`}
+      identifier={`ev_${id}`}
       anchor={{ x: 0.5, y: 1 }}
-      zIndex={estSelectionne ? 999 : 1}
+      zIndex={estSelectionne ? 10 : 2}
     >
-      <View pointerEvents="none" style={{ alignItems: 'center' }}>
-        {estSelectionne && (
-          <View style={{
-            position: 'absolute', top: -6, width: taille + 12, height: taille + 12,
-            borderRadius: (taille + 12) / 2,
-            backgroundColor: cat.forte + '30',
-            zIndex: 0,
-          }} />
-        )}
-        <View style={{
-          width: taille, height: taille,
-          borderRadius: taille / 2,
-          backgroundColor: cat.forte,
-          alignItems: 'center', justifyContent: 'center',
-          shadowColor: '#000', shadowOffset: { width: 0, height: estSelectionne ? 4 : 2 },
-          shadowOpacity: estSelectionne ? 0.4 : 0.25, shadowRadius: estSelectionne ? 6 : 3,
-          elevation: estSelectionne ? 8 : 4,
-          borderWidth: estSelectionne ? 3 : 0,
-          borderColor: estSelectionne ? '#fff' : 'transparent',
-        }}>
-          <Ionicons name={CAT_ICONES[point.categorie] || 'construct-outline'} size={estSelectionne ? 17 : 14} color="#fff" />
+      <View pointerEvents="none" style={styles.mWrap}>
+        {estSelectionne && <View style={[styles.mAnneau, { borderColor: cat.forte }]} />}
+        <View style={[styles.mBulle, { backgroundColor: cat.forte }]}>
+          <Ionicons name={cat.icone} size={13} color="#fff" />
         </View>
-        <View style={{
-          width: 0, height: 0,
-          borderLeftWidth: estSelectionne ? 5 : 4, borderRightWidth: estSelectionne ? 5 : 4,
-          borderTopWidth: estSelectionne ? 8 : 6,
-          borderLeftColor: 'transparent', borderRightColor: 'transparent',
-          borderTopColor: cat.forte,
-        }} />
+        <View style={[styles.mQueue, { borderTopColor: cat.forte }]} />
       </View>
     </Marker>
   );
-};
+}, (prev, next) =>
+  prev.estSelectionne === next.estSelectionne &&
+  prev.latitude === next.latitude &&
+  prev.longitude === next.longitude
+);
 
-// Marqueur lieu fixe communautaire
-const MarqueurFixe = ({ point, estSelectionne, onPress, CATEGORIES_COULEURS, CAT_ICONES }) => {
-  const cat = CATEGORIES_COULEURS[point.categorie] || { forte: '#888' };
-  const taille = estSelectionne ? MARQUEUR_FIXE_TAILLE * 1.3 : MARQUEUR_FIXE_TAILLE;
+const MarqueurFixe = memo(({ id, latitude, longitude, categorie, estSelectionne, onPress }) => {
+  const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
   return (
     <Marker
-      coordinate={{ latitude: point.latitude, longitude: point.longitude }}
+      coordinate={{ latitude, longitude }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={estSelectionne}
+      tracksViewChanges={false}
       calloutEnabled={false}
-      identifier={`ev_${point.id}`}
+      identifier={`fix_${id}`}
       anchor={{ x: 0.5, y: 0.5 }}
-      zIndex={estSelectionne ? 999 : 1}
+      zIndex={estSelectionne ? 10 : 2}
     >
-      <View pointerEvents="none" style={{ width: taille + 8, height: taille + 8, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{
-          width: taille, height: taille,
-          borderRadius: 8, backgroundColor: cat.forte,
-          alignItems: 'center', justifyContent: 'center',
-          borderWidth: estSelectionne ? 3 : 2, borderColor: '#fff',
-          shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: estSelectionne ? 0.4 : 0.25, shadowRadius: estSelectionne ? 6 : 3,
-          elevation: estSelectionne ? 8 : 4,
-        }}>
-          <Ionicons name={CAT_ICONES[point.categorie] || 'construct-outline'} size={estSelectionne ? 14 : 12} color="#fff" />
+      <View pointerEvents="none" style={styles.mFixeWrap}>
+        {estSelectionne && <View style={[styles.mAnneau, { borderColor: cat.forte }]} />}
+        <View style={[styles.mCarre, { backgroundColor: cat.forte }]}>
+          <Ionicons name={cat.icone} size={11} color="#fff" />
         </View>
-        <View style={{
-          position: 'absolute', bottom: 0, right: 0,
-          width: 12, height: 12, borderRadius: 6,
-          backgroundColor: cat.forte,
-          alignItems: 'center', justifyContent: 'center',
-          borderWidth: 1.5, borderColor: '#fff',
-        }}>
-          <Ionicons name="location" size={6} color="#fff" />
+        <View style={[styles.mPoint, { backgroundColor: cat.forte }]}>
+          <Ionicons name="location" size={5} color="#fff" />
         </View>
       </View>
     </Marker>
   );
-};
+}, (prev, next) =>
+  prev.estSelectionne === next.estSelectionne &&
+  prev.latitude === next.latitude &&
+  prev.longitude === next.longitude
+);
 
-// Marqueur événement officiel — type spécial détecté automatiquement
-const MarqueurOfficiel = ({ ev, estSelectionne, onPress, CATEGORIES_COULEURS, CAT_ICONES }) => {
-  const typeSpecial = detecterTypeSpecial(ev);
-  const config = TYPE_SPECIAL_CONFIG[typeSpecial];
-  const estTypeSpecial = typeSpecial !== 'officiel';
-
-  const taille = estSelectionne
-    ? (estTypeSpecial ? MARQUEUR_SALLE_TAILLE : MARQUEUR_OFFICIEL_TAILLE) * 1.35
-    : (estTypeSpecial ? MARQUEUR_SALLE_TAILLE : MARQUEUR_OFFICIEL_TAILLE);
-
-  const couleur = estTypeSpecial ? config.couleur : (CATEGORIES_COULEURS[ev.categorie]?.forte || '#2563EB');
-
+const MarqueurOfficiel = memo(({ id, latitude, longitude, categorie, estSelectionne, onPress }) => {
+  const cat = CATEGORIES[categorie] || CATEGORIES['Art'];
   return (
     <Marker
-      coordinate={{ latitude: parseFloat(ev.latitude), longitude: parseFloat(ev.longitude) }}
+      coordinate={{ latitude: parseFloat(latitude), longitude: parseFloat(longitude) }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={estSelectionne}
+      tracksViewChanges={false}
       calloutEnabled={false}
-      identifier={`off_${ev.id}`}
+      identifier={`off_${id}`}
       anchor={{ x: 0.5, y: 1 }}
-      zIndex={estSelectionne ? 999 : estTypeSpecial ? 3 : 2}
+      zIndex={estSelectionne ? 10 : 3}
     >
-      <View pointerEvents="none" style={{ alignItems: 'center' }}>
-        {estSelectionne && (
-          <View style={{
-            position: 'absolute', top: -6, width: taille + 12, height: taille + 12,
-            borderRadius: (taille + 12) / 2,
-            backgroundColor: couleur + '30',
-          }} />
-        )}
-        <View style={{
-          width: taille, height: taille,
-          borderRadius: taille / 2,
-          // Type spécial = fond coloré plein, officiel = fond blanc + bordure
-          backgroundColor: estTypeSpecial ? couleur : '#fff',
-          alignItems: 'center', justifyContent: 'center',
-          borderWidth: estTypeSpecial ? (estSelectionne ? 3 : 2) : (estSelectionne ? 3 : 2.5),
-          borderColor: estSelectionne ? '#fff' : (estTypeSpecial ? '#fff' : couleur),
-          shadowColor: '#000', shadowOffset: { width: 0, height: estSelectionne ? 4 : 1 },
-          shadowOpacity: estSelectionne ? 0.4 : 0.2, shadowRadius: estSelectionne ? 6 : 2,
-          elevation: estSelectionne ? 8 : estTypeSpecial ? 4 : 3,
-        }}>
-          <Ionicons
-            name={config.icone}
-            size={estSelectionne ? 15 : (estTypeSpecial ? 13 : 11)}
-            color={estTypeSpecial ? '#fff' : couleur}
-          />
+      <View pointerEvents="none" style={styles.mWrap}>
+        {estSelectionne && <View style={[styles.mAnneau, { borderColor: cat.forte }]} />}
+        <View style={[styles.mOfficiel, { borderColor: cat.forte }]}>
+          <Ionicons name={cat.icone} size={10} color={cat.forte} />
         </View>
-        <View style={{
-          width: 0, height: 0,
-          borderLeftWidth: estSelectionne ? 5 : (estTypeSpecial ? 4 : 3),
-          borderRightWidth: estSelectionne ? 5 : (estTypeSpecial ? 4 : 3),
-          borderTopWidth: estSelectionne ? 8 : (estTypeSpecial ? 6 : 5),
-          borderLeftColor: 'transparent', borderRightColor: 'transparent',
-          borderTopColor: couleur,
-        }} />
+        <View style={[styles.mQueue, { borderTopColor: cat.forte }]} />
       </View>
     </Marker>
   );
-};
+}, (prev, next) =>
+  prev.estSelectionne === next.estSelectionne &&
+  prev.latitude === next.latitude &&
+  prev.longitude === next.longitude
+);
 
-// Marqueur lieu officiel
-const MarqueurLieu = ({ lieu, estSelectionne, onPress }) => {
-  const config = LIEUX_CONFIG[lieu.categorie] || { couleur: '#6B7280', icone: 'information-circle' };
-  const taille = estSelectionne ? MARQUEUR_LIEU_TAILLE * 1.4 : MARQUEUR_LIEU_TAILLE;
+const MarqueurLieu = memo(({ id, lieu, estSelectionne, onPress }) => {
+  const config = getLieuConfig(lieu.categorie, lieu.sous_categorie);
   return (
     <Marker
       coordinate={{ latitude: parseFloat(lieu.latitude), longitude: parseFloat(lieu.longitude) }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={estSelectionne}
+      tracksViewChanges={false}
       calloutEnabled={false}
       identifier={`lieu_${lieu.id}`}
       anchor={{ x: 0.5, y: 0.5 }}
-      zIndex={estSelectionne ? 999 : 1}
+      zIndex={estSelectionne ? 10 : 1}
     >
-      <View pointerEvents="none" style={{ width: taille + 4, height: taille + 4, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{
-          width: taille, height: taille,
-          borderRadius: taille / 2,
-          backgroundColor: config.couleur,
-          alignItems: 'center', justifyContent: 'center',
-          borderWidth: estSelectionne ? 2.5 : 1.5, borderColor: '#fff',
-          elevation: estSelectionne ? 5 : 2,
-        }}>
-          <Ionicons name={config.icone} size={estSelectionne ? 12 : 9} color="#fff" />
+      <View pointerEvents="none" style={styles.mLieuWrap}>
+        {estSelectionne && <View style={[styles.mAnneau, { borderColor: config.couleur, width: 32, height: 32, borderRadius: 16, top: -5, left: -5 }]} />}
+        <View style={[styles.mLieu, { backgroundColor: config.couleur }]}>
+          <Ionicons name={config.icone} size={9} color="#fff" />
         </View>
       </View>
     </Marker>
   );
-};
+}, (prev, next) => prev.estSelectionne === next.estSelectionne);
 
-// ── Écran ─────────────────────────────────────────────────────────────────────
+// ── Écran principal ───────────────────────────────────────────────────────────
 
 export default function CarteScreen({ navigation }) {
   const { evenements, erreurReseau, chargerEvenements } = useEvenements();
   const {
     theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES,
-    rayonDefaut, ajouterFavori, estFavori,
+    ajouterFavori, estFavori,
     evenementCible, setEvenementCible,
   } = useApp();
 
   const [pointSelectionne, setPointSelectionne] = useState(null);
-  const [evenementOfficielSelectionne, setEvenementOfficielSelectionne] = useState(null);
+  const [officielSelectionne, setOfficielSelectionne] = useState(null);
   const [lieuSelectionne, setLieuSelectionne] = useState(null);
-  const [idSelectionne, setIdSelectionne] = useState(null); // Pour surbrillance
+  const [idSelectionne, setIdSelectionne] = useState(null);
+
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [afficherCommunautaires, setAfficherCommunautaires] = useState(true);
   const [afficherOfficiels, setAfficherOfficiels] = useState(true);
-  const [afficherLieux, setAfficherLieux] = useState(true);
+  const [afficherLieux, setAfficherLieux] = useState(false);
+  // Catégories de lieux cochées — vide = toutes décochées par défaut
+  const [lieuxCategoriesActives, setLieuxCategoriesActives] = useState([]);
   const [filtresCategories, setFiltresCategories] = useState([]);
-  const [filtresCategoriesLieux, setFiltresCategoriesLieux] = useState([]);
   const [filtreDate, setFiltreDate] = useState('tous');
   const [datePrecise, setDatePrecise] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [rayon, setRayon] = useState(rayonDefaut);
+  const [rayon, setRayon] = useState(null);
+
   const [positionUser, setPositionUser] = useState(null);
   const [lieuxOfficiels, setLieuxOfficiels] = useState([]);
   const [evenementsOfficiels, setEvenementsOfficiels] = useState([]);
   const [regionActuelle, setRegionActuelle] = useState({ ...PARIS, latitudeDelta: 0.08, longitudeDelta: 0.08 });
   const [pret, setPret] = useState(false);
-  const [zoomSuffisant, setZoomSuffisant] = useState(true);
+  const [zoomSuffisant, setZoomSuffisant] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(300)).current;
   const slideAnimOfficiel = useRef(new Animated.Value(300)).current;
   const slideAnimLieu = useRef(new Animated.Value(300)).current;
-  const menuAnim = useRef(new Animated.Value(-260)).current;
+  const menuAnim = useRef(new Animated.Value(-300)).current;
   const mapRef = useRef(null);
   const t = (size) => size * facteurTexte;
 
@@ -332,12 +271,11 @@ export default function CarteScreen({ navigation }) {
         const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
         setPositionUser(pos);
         setRegionActuelle({ ...pos, latitudeDelta: 0.04, longitudeDelta: 0.04 });
-        chargerLieux(pos, rayonDefaut || 5000);
-        chargerEvenementsOfficiels(pos, rayonDefaut || 5000);
+        chargerLieux(pos, 10000);
       } else {
-        chargerLieux(PARIS, 5000);
-        chargerEvenementsOfficiels(PARIS, 5000);
+        chargerLieux(PARIS, 10000);
       }
+      await chargerEvenementsOfficiels();
       setPret(true);
     })();
   }, []);
@@ -345,31 +283,25 @@ export default function CarteScreen({ navigation }) {
   const chargerLieux = async (pos, rayonM) => {
     try {
       const { data } = await supabase.rpc('lieux_dans_rayon', {
-        lat: pos.latitude, lng: pos.longitude, rayon_metres: rayonM || 5000,
+        lat: pos.latitude, lng: pos.longitude, rayon_metres: rayonM,
       });
       if (data) setLieuxOfficiels(data);
     } catch {}
   };
 
-  const chargerEvenementsOfficiels = async (pos, rayonM) => {
+  const chargerEvenementsOfficiels = async () => {
     try {
+      const maintenant = new Date().toISOString();
       const { data } = await supabase
         .from('evenements_officiels')
-        .select('*')
+        .select('id, titre, description, categorie, lieu, adresse, latitude, longitude, date_debut, date_fin, url, organisateur, source, gratuit, prix_min, salle, lieu_id')
         .eq('actif', true)
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
-        .gte('date_debut', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString())
+        .or(`date_fin.gte.${maintenant},and(date_fin.is.null,date_debut.gte.${maintenant})`)
         .order('date_debut', { ascending: true })
-        .limit(500);
-      if (data) {
-        const centre = pos || PARIS;
-        const filtres = rayonM ? data.filter(ev =>
-          distanceKm(centre.latitude, centre.longitude,
-            parseFloat(ev.latitude), parseFloat(ev.longitude)) * 1000 <= rayonM
-        ) : data;
-        setEvenementsOfficiels(filtres);
-      }
+        .limit(700);
+      if (data) setEvenementsOfficiels(data);
     } catch {}
   };
 
@@ -378,55 +310,65 @@ export default function CarteScreen({ navigation }) {
       if (!evenementCible || !pret) return;
       const ev = evenementCible;
       setEvenementCible(null);
-      const region = { latitude: ev.latitude, longitude: ev.longitude, latitudeDelta: 0.008, longitudeDelta: 0.008 };
-      setTimeout(() => {
-        if (mapRef.current) mapRef.current.animateToRegion(region, 600);
-        setTimeout(() => ouvrirPopupEvenement(ev), 700);
-      }, 200);
+      recentrerSur(ev.latitude, ev.longitude);
+      setTimeout(() => ouvrirPopupEvenement(ev), 800);
     }, [evenementCible, pret])
   );
+
+  const recentrerSur = useCallback((lat, lon) => {
+    if (!mapRef.current) return;
+    mapRef.current.animateToRegion({
+      latitude: parseFloat(lat) - 0.003,
+      longitude: parseFloat(lon),
+      latitudeDelta: 0.012,
+      longitudeDelta: 0.012,
+    }, 500);
+  }, []);
 
   const centrerUser = () => {
     if (!positionUser || !mapRef.current) return;
     mapRef.current.animateToRegion({ ...positionUser, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600);
   };
 
-  const fermerToutesPopups = () => {
+  const fermerToutesPopups = useCallback(() => {
     setIdSelectionne(null);
-    Animated.timing(slideAnim, { toValue: 300, useNativeDriver: true, duration: 180 }).start(() => setPointSelectionne(null));
-    Animated.timing(slideAnimOfficiel, { toValue: 300, useNativeDriver: true, duration: 180 }).start(() => setEvenementOfficielSelectionne(null));
-    Animated.timing(slideAnimLieu, { toValue: 300, useNativeDriver: true, duration: 180 }).start(() => setLieuSelectionne(null));
-  };
+    Animated.parallel([
+      Animated.timing(slideAnim, { toValue: 300, useNativeDriver: true, duration: 200 }),
+      Animated.timing(slideAnimOfficiel, { toValue: 300, useNativeDriver: true, duration: 200 }),
+      Animated.timing(slideAnimLieu, { toValue: 300, useNativeDriver: true, duration: 200 }),
+    ]).start(() => {
+      setPointSelectionne(null);
+      setOfficielSelectionne(null);
+      setLieuSelectionne(null);
+    });
+  }, []);
 
-  const ouvrirPopupEvenement = (point) => {
-    fermerToutesPopups();
+  const ouvrirPopupEvenement = useCallback((point) => {
     setIdSelectionne(`ev_${point.id}`);
-    slideAnim.setValue(300);
-    setTimeout(() => {
-      setPointSelectionne(point);
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
-    }, 200);
-  };
+    setOfficielSelectionne(null); setLieuSelectionne(null);
+    slideAnim.setValue(300); slideAnimOfficiel.setValue(300); slideAnimLieu.setValue(300);
+    setPointSelectionne(point);
+    Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 12 }).start();
+    recentrerSur(point.latitude, point.longitude);
+  }, [recentrerSur]);
 
-  const ouvrirPopupOfficiel = (ev) => {
-    fermerToutesPopups();
+  const ouvrirPopupOfficiel = useCallback((ev) => {
     setIdSelectionne(`off_${ev.id}`);
-    slideAnimOfficiel.setValue(300);
-    setTimeout(() => {
-      setEvenementOfficielSelectionne(ev);
-      Animated.spring(slideAnimOfficiel, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
-    }, 200);
-  };
+    setPointSelectionne(null); setLieuSelectionne(null);
+    slideAnim.setValue(300); slideAnimOfficiel.setValue(300); slideAnimLieu.setValue(300);
+    setOfficielSelectionne(ev);
+    Animated.spring(slideAnimOfficiel, { toValue: 0, useNativeDriver: true, tension: 60, friction: 12 }).start();
+    recentrerSur(parseFloat(ev.latitude), parseFloat(ev.longitude));
+  }, [recentrerSur]);
 
-  const ouvrirPopupLieu = (lieu) => {
-    fermerToutesPopups();
+  const ouvrirPopupLieu = useCallback((lieu) => {
     setIdSelectionne(`lieu_${lieu.id}`);
-    slideAnimLieu.setValue(300);
-    setTimeout(() => {
-      setLieuSelectionne(lieu);
-      Animated.spring(slideAnimLieu, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
-    }, 200);
-  };
+    setPointSelectionne(null); setOfficielSelectionne(null);
+    slideAnim.setValue(300); slideAnimOfficiel.setValue(300); slideAnimLieu.setValue(300);
+    setLieuSelectionne(lieu);
+    Animated.spring(slideAnimLieu, { toValue: 0, useNativeDriver: true, tension: 60, friction: 12 }).start();
+    recentrerSur(parseFloat(lieu.latitude), parseFloat(lieu.longitude));
+  }, [recentrerSur]);
 
   const ouvrirMenu = () => {
     setMenuOuvert(true);
@@ -434,25 +376,32 @@ export default function CarteScreen({ navigation }) {
   };
 
   const fermerMenu = () => {
-    Animated.timing(menuAnim, { toValue: -260, useNativeDriver: true, duration: 250 }).start(() => setMenuOuvert(false));
+    Animated.timing(menuAnim, { toValue: -300, useNativeDriver: true, duration: 250 }).start(() => setMenuOuvert(false));
   };
 
   const toutEffacer = () => {
     setFiltresCategories([]);
-    setFiltresCategoriesLieux([]);
+    setLieuxCategoriesActives([]);
     setAfficherCommunautaires(true);
     setAfficherOfficiels(true);
-    setAfficherLieux(true);
+    setAfficherLieux(false);
     setFiltreDate('tous');
+    setRayon(null);
   };
+
+  const toggleLieuCategorie = useCallback((cat) => {
+    setLieuxCategoriesActives(prev =>
+      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+    );
+  }, []);
 
   const plageDate = getPlageDates(filtreDate, datePrecise);
   const centre = positionUser || PARIS;
-  const rayonActif = rayon || rayonDefaut;
 
   const evenementsFiltres = afficherCommunautaires ? evenements.filter(p => {
     const matchCat = filtresCategories.length === 0 || filtresCategories.includes(p.categorie);
-    const matchRayon = !rayonActif || distanceKm(centre.latitude, centre.longitude, p.latitude, p.longitude) * 1000 <= rayonActif;
+    const matchRayon = !rayon || !positionUser ||
+      distanceKm(centre.latitude, centre.longitude, p.latitude, p.longitude) * 1000 <= rayon;
     let matchDate = true;
     if (plageDate && p.type !== 'fixe') {
       if (!p.date_evenement) matchDate = false;
@@ -461,24 +410,34 @@ export default function CarteScreen({ navigation }) {
     return matchCat && matchRayon && matchDate;
   }) : [];
 
-  const evenementsOfficielsFiltres = afficherOfficiels ? evenementsOfficiels.filter(ev => {
+  const officielsFiltres = afficherOfficiels ? evenementsOfficiels.filter(ev => {
     const matchCat = filtresCategories.length === 0 || filtresCategories.includes(ev.categorie);
+    const matchRayon = !rayon || !positionUser || !ev.latitude || !ev.longitude ||
+      distanceKm(centre.latitude, centre.longitude, parseFloat(ev.latitude), parseFloat(ev.longitude)) * 1000 <= rayon;
     let matchDate = true;
     if (plageDate) {
       if (!ev.date_debut) matchDate = false;
       else { const d = new Date(ev.date_debut); matchDate = d >= plageDate.debut && d <= plageDate.fin; }
     }
-    return matchCat && matchDate;
+    return matchCat && matchRayon && matchDate;
   }) : [];
 
-  const lieuxFiltres = (afficherLieux && zoomSuffisant) ? lieuxOfficiels.filter(l =>
-    filtresCategoriesLieux.length === 0 || filtresCategoriesLieux.includes(l.categorie)
-  ) : [];
+  // Lieux — filtrés par catégories choisies + rayon
+  const lieuxFiltres = (afficherLieux && zoomSuffisant && lieuxCategoriesActives.length > 0)
+    ? lieuxOfficiels.filter(l => {
+        const config = getLieuConfig(l.categorie, l.sous_categorie);
+        const nomCat = Object.entries(LIEUX_CATEGORIES).find(([, c]) => c.couleur === config.couleur)?.[0];
+        const matchCat = lieuxCategoriesActives.includes(nomCat || l.sous_categorie || l.categorie);
+        const matchRayon = !rayon || !positionUser ||
+          distanceKm(centre.latitude, centre.longitude, parseFloat(l.latitude), parseFloat(l.longitude)) * 1000 <= rayon;
+        return matchCat && matchRayon;
+      })
+    : [];
 
   const nbFiltresActifs =
-    filtresCategories.length + filtresCategoriesLieux.length +
+    filtresCategories.length + lieuxCategoriesActives.length +
     (!afficherCommunautaires ? 1 : 0) + (!afficherOfficiels ? 1 : 0) +
-    (!afficherLieux ? 1 : 0) + (filtreDate !== 'tous' ? 1 : 0);
+    (afficherLieux ? 1 : 0) + (filtreDate !== 'tous' ? 1 : 0) + (rayon ? 1 : 0);
 
   const labelDateActif = filtreDate !== 'tous'
     ? (filtreDate === 'date_precise'
@@ -486,18 +445,13 @@ export default function CarteScreen({ navigation }) {
         : FILTRES_DATE.find(f => f.key === filtreDate)?.label)
     : null;
 
-  const catSelectionne = pointSelectionne ? (CATEGORIES_COULEURS[pointSelectionne.categorie] || { claire: '#F5F5F5', forte: '#888', texte: '#444' }) : null;
-  const typeSpecialSelectionne = evenementOfficielSelectionne ? detecterTypeSpecial(evenementOfficielSelectionne) : null;
-  const configTypeSelectionne = typeSpecialSelectionne ? TYPE_SPECIAL_CONFIG[typeSpecialSelectionne] : null;
-  const catOfficielle = evenementOfficielSelectionne ? (CATEGORIES_COULEURS[evenementOfficielSelectionne.categorie] || { claire: '#DBEAFE', forte: '#2563EB', texte: '#1E40AF' }) : null;
-  const couleurPopupOfficielle = typeSpecialSelectionne && typeSpecialSelectionne !== 'officiel'
-    ? configTypeSelectionne.couleur
-    : catOfficielle?.forte || '#2563EB';
-  const configLieu = lieuSelectionne ? (LIEUX_CONFIG[lieuSelectionne.categorie] || { couleur: '#6B7280', icone: 'information-circle', bg: '#F3F4F6' }) : null;
+  const catSel = pointSelectionne ? (CATEGORIES[pointSelectionne.categorie] || CATEGORIES['Art']) : null;
+  const configOfficiel = officielSelectionne ? (CATEGORIES[officielSelectionne.categorie] || CATEGORIES['Art']) : null;
+  const configLieuSel = lieuSelectionne ? getLieuConfig(lieuSelectionne.categorie, lieuSelectionne.sous_categorie) : null;
 
   if (!pret) {
     return (
-      <View style={[styles.container, { backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' }]}>
+      <View style={{ flex: 1, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
           <Ionicons name="location" size={26} color="#fff" />
         </View>
@@ -507,8 +461,7 @@ export default function CarteScreen({ navigation }) {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-
+    <View style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -517,48 +470,45 @@ export default function CarteScreen({ navigation }) {
         showsUserLocation
         showsMyLocationButton={false}
         userInterfaceStyle={theme.bg === '#0A0A0A' ? 'dark' : 'light'}
-        clusterColor="#111"
+        clusterColor="#1E293B"
         clusterTextColor="#fff"
         clusterFontFamily="System"
         clusteringEnabled
-        radius={40}
+        radius={36}
         extent={512}
         minZoom={1}
         maxZoom={20}
-        minPoints={3}
-        animationEnabled
+        minPoints={4}
+        animationEnabled={false}
         onPress={() => { if (menuOuvert) fermerMenu(); fermerToutesPopups(); }}
         onRegionChangeComplete={(region) => {
           setRegionActuelle(region);
-          setZoomSuffisant(region.latitudeDelta < ZOOM_MIN_LIEUX);
+          setZoomSuffisant(region.latitudeDelta < 0.05);
         }}
       >
-        {rayonActif && (
-          <Circle
-            center={centre}
-            radius={rayonActif}
-            fillColor="rgba(37,99,235,0.06)"
-            strokeColor="rgba(37,99,235,0.25)"
-            strokeWidth={1}
-          />
+        {rayon && positionUser && (
+          <Circle center={centre} radius={rayon}
+            fillColor="rgba(37,99,235,0.05)" strokeColor="rgba(37,99,235,0.2)" strokeWidth={1} />
         )}
 
         {lieuxFiltres.map(lieu => (
           <MarqueurLieu
             key={`lieu_${lieu.id}`}
+            id={lieu.id}
             lieu={lieu}
             estSelectionne={idSelectionne === `lieu_${lieu.id}`}
             onPress={() => ouvrirPopupLieu(lieu)}
           />
         ))}
 
-        {evenementsOfficielsFiltres.map(ev => (
+        {officielsFiltres.map(ev => (
           <MarqueurOfficiel
             key={`off_${ev.id}`}
-            ev={ev}
+            id={ev.id}
+            latitude={ev.latitude}
+            longitude={ev.longitude}
+            categorie={ev.categorie}
             estSelectionne={idSelectionne === `off_${ev.id}`}
-            CATEGORIES_COULEURS={CATEGORIES_COULEURS}
-            CAT_ICONES={CAT_ICONES}
             onPress={() => ouvrirPopupOfficiel(ev)}
           />
         ))}
@@ -566,20 +516,22 @@ export default function CarteScreen({ navigation }) {
         {evenementsFiltres.map(p =>
           p.type === 'fixe' ? (
             <MarqueurFixe
-              key={`ev_${p.id}`}
-              point={p}
-              estSelectionne={idSelectionne === `ev_${p.id}`}
-              CATEGORIES_COULEURS={CATEGORIES_COULEURS}
-              CAT_ICONES={CAT_ICONES}
+              key={`fix_${p.id}`}
+              id={p.id}
+              latitude={p.latitude}
+              longitude={p.longitude}
+              categorie={p.categorie}
+              estSelectionne={idSelectionne === `fix_${p.id}`}
               onPress={() => ouvrirPopupEvenement(p)}
             />
           ) : (
-            <MarqueurTemporaire
+            <MarqueurCommunautaire
               key={`ev_${p.id}`}
-              point={p}
+              id={p.id}
+              latitude={p.latitude}
+              longitude={p.longitude}
+              categorie={p.categorie}
               estSelectionne={idSelectionne === `ev_${p.id}`}
-              CATEGORIES_COULEURS={CATEGORIES_COULEURS}
-              CAT_ICONES={CAT_ICONES}
               onPress={() => ouvrirPopupEvenement(p)}
             />
           )
@@ -588,10 +540,10 @@ export default function CarteScreen({ navigation }) {
 
       {erreurReseau && (
         <View style={styles.erreurBanner}>
-          <Ionicons name="wifi-outline" size={16} color="#fff" />
-          <Text style={styles.erreurTexte}>Pas de connexion</Text>
-          <TouchableOpacity onPress={chargerEvenements} style={styles.reessayerBtn}>
-            <Text style={styles.reessayerTexte}>Réessayer</Text>
+          <Ionicons name="wifi-outline" size={14} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 13, flex: 1 }}>Pas de connexion</Text>
+          <TouchableOpacity onPress={chargerEvenements} style={styles.erreurBtn}>
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>Réessayer</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -601,26 +553,36 @@ export default function CarteScreen({ navigation }) {
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
             {labelDateActif && (
-              <TouchableOpacity style={[styles.filtreActifBadge, { backgroundColor: '#111', borderColor: '#333' }]}
+              <TouchableOpacity style={[styles.pill, { backgroundColor: '#111', borderColor: '#333' }]}
                 onPress={() => setFiltreDate('tous')}>
                 <Ionicons name="calendar-outline" size={11} color="#fff" />
                 <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>{labelDateActif}</Text>
                 <Ionicons name="close" size={11} color="#fff" />
               </TouchableOpacity>
             )}
+            {rayon && (
+              <TouchableOpacity style={[styles.pill, { backgroundColor: '#DBEAFE', borderColor: '#2563EB' }]}
+                onPress={() => setRayon(null)}>
+                <Ionicons name="navigate-outline" size={11} color="#2563EB" />
+                <Text style={{ color: '#1E40AF', fontSize: t(11), fontWeight: '500' }}>
+                  {rayon >= 1000 ? `${rayon / 1000} km` : `${rayon} m`}
+                </Text>
+                <Ionicons name="close" size={11} color="#2563EB" />
+              </TouchableOpacity>
+            )}
             {filtresCategories.map(cat => {
-              const c = CATEGORIES_COULEURS[cat] || { claire: '#F5F5F5', forte: '#888', texte: '#444' };
+              const c = CATEGORIES[cat] || { claire: '#F5F5F5', forte: '#888', texte: '#444', icone: 'apps-outline' };
               return (
                 <TouchableOpacity key={cat}
-                  style={[styles.filtreActifBadge, { backgroundColor: c.claire, borderColor: c.forte }]}
+                  style={[styles.pill, { backgroundColor: c.claire, borderColor: c.forte }]}
                   onPress={() => setFiltresCategories(prev => prev.filter(x => x !== cat))}>
-                  <Ionicons name={CAT_ICONES[cat] || 'apps-outline'} size={11} color={c.forte} />
+                  <Ionicons name={c.icone} size={11} color={c.forte} />
                   <Text style={{ color: c.texte, fontSize: t(11), fontWeight: '500' }}>{cat}</Text>
                   <Ionicons name="close" size={11} color={c.forte} />
                 </TouchableOpacity>
               );
             })}
-            <TouchableOpacity style={[styles.filtreActifBadge, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}
+            <TouchableOpacity style={[styles.pill, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}
               onPress={toutEffacer}>
               <Text style={{ color: '#EF4444', fontSize: t(11), fontWeight: '500' }}>Tout effacer</Text>
             </TouchableOpacity>
@@ -636,7 +598,7 @@ export default function CarteScreen({ navigation }) {
           <View style={styles.logoIcone}>
             <Ionicons name="location" size={11} color="#fff" />
           </View>
-          <Text style={[styles.logo, { fontSize: t(15) }]}>Luma</Text>
+          <Text style={[styles.logoTexte, { fontSize: t(15) }]}>Luma</Text>
           {nbFiltresActifs > 0 && (
             <View style={styles.filtreCount}>
               <Text style={{ color: '#fff', fontSize: t(9), fontWeight: '700' }}>{nbFiltresActifs}</Text>
@@ -662,9 +624,9 @@ export default function CarteScreen({ navigation }) {
 
       {menuOuvert && (
         <Animated.View style={[styles.menu, { backgroundColor: theme.card, transform: [{ translateY: menuAnim }] }]}>
-          <View style={[styles.menuHeaderRow, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.menuTitreTexte, { color: theme.text, fontSize: t(14) }]}>Filtres</Text>
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <View style={[styles.menuHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.menuTitre, { color: theme.text, fontSize: t(14) }]}>Filtres</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
               {nbFiltresActifs > 0 && (
                 <TouchableOpacity onPress={toutEffacer} style={[styles.effacerBtn, { backgroundColor: '#FEE2E2' }]}>
                   <Text style={{ color: '#EF4444', fontSize: t(11), fontWeight: '500' }}>Effacer</Text>
@@ -677,15 +639,83 @@ export default function CarteScreen({ navigation }) {
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
+
+            {/* Affichage */}
+            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>AFFICHAGE</Text>
+            {[
+              { key: 'comm', label: 'Communautaires', desc: `${evenements.length} événements`, icon: 'people-outline', actif: afficherCommunautaires, toggle: () => setAfficherCommunautaires(v => !v), couleur: '#111' },
+              { key: 'off', label: 'Agenda Paris', desc: `${evenementsOfficiels.length} événements`, icon: 'calendar-outline', actif: afficherOfficiels, toggle: () => setAfficherOfficiels(v => !v), couleur: '#2563EB' },
+              { key: 'lieux', label: 'Lieux', desc: 'Salles, cinémas, services...', icon: 'location-outline', actif: afficherLieux, toggle: () => setAfficherLieux(v => !v), couleur: '#475569' },
+            ].map(item => (
+              <TouchableOpacity key={item.key}
+                style={[styles.menuItem, item.actif && {
+                  backgroundColor: item.couleur === '#111' ? '#111' : item.couleur === '#2563EB' ? '#EFF6FF' : '#F1F5F9',
+                }]}
+                onPress={item.toggle}
+              >
+                <View style={[styles.menuIcone, { backgroundColor: item.actif ? item.couleur : '#F5F5F5' }]}>
+                  <Ionicons name={item.icon} size={13} color={item.actif ? '#fff' : '#888'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: item.actif && item.couleur === '#111' ? '#fff' : item.actif ? item.couleur : theme.text, fontSize: t(13), fontWeight: item.actif ? '500' : '400' }}>
+                    {item.label}
+                  </Text>
+                  <Text style={{ color: item.actif && item.couleur === '#111' ? 'rgba(255,255,255,0.6)' : theme.text3, fontSize: t(11) }}>
+                    {item.desc}
+                  </Text>
+                </View>
+                <View style={[styles.checkbox, { backgroundColor: item.actif ? item.couleur : 'transparent', borderColor: item.actif ? item.couleur : theme.border }]}>
+                  {item.actif && <Ionicons name="checkmark" size={11} color="#fff" />}
+                </View>
+              </TouchableOpacity>
+            ))}
+
+            {/* Sous-catégories lieux */}
+            {afficherLieux && (
+              <>
+                <View style={[styles.sep, { backgroundColor: theme.border, marginLeft: 40 }]} />
+                <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10), paddingLeft: 24 }]}>
+                  TYPES DE LIEUX {!zoomSuffisant ? '(zoome pour voir)' : ''}
+                </Text>
+                <View style={styles.catGrilleLieux}>
+                  {Object.entries(LIEUX_CATEGORIES).map(([nom, config]) => {
+                    const actif = lieuxCategoriesActives.includes(nom);
+                    const nb = lieuxOfficiels.filter(l => {
+                      const lc = getLieuConfig(l.categorie, l.sous_categorie);
+                      return lc.couleur === config.couleur;
+                    }).length;
+                    if (nb === 0) return null;
+                    return (
+                      <TouchableOpacity key={nom}
+                        style={[styles.lieuCatItem, {
+                          backgroundColor: actif ? config.couleur : theme.card,
+                          borderColor: actif ? config.couleur : theme.border,
+                        }]}
+                        onPress={() => toggleLieuCategorie(nom)}
+                      >
+                        <Ionicons name={config.icone} size={14} color={actif ? '#fff' : config.couleur} />
+                        <Text style={{ color: actif ? '#fff' : theme.text, fontSize: t(10), fontWeight: actif ? '500' : '400', marginTop: 3, textAlign: 'center' }} numberOfLines={2}>
+                          {nom}
+                        </Text>
+                        <Text style={{ color: actif ? 'rgba(255,255,255,0.7)' : theme.text3, fontSize: t(9) }}>({nb})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            <View style={[styles.sep, { backgroundColor: theme.border }]} />
+
+            {/* Date */}
             <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>DATE</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 6, paddingHorizontal: 8, paddingBottom: 8 }}>
               {FILTRES_DATE.map(fd => {
                 const actif = filtreDate === fd.key;
                 return (
-                  <TouchableOpacity
-                    key={fd.key}
-                    style={[styles.dateChip, { backgroundColor: actif ? '#111' : theme.bg, borderColor: actif ? '#111' : theme.border }]}
+                  <TouchableOpacity key={fd.key}
+                    style={[styles.chip, { backgroundColor: actif ? '#111' : theme.bg, borderColor: actif ? '#111' : theme.border }]}
                     onPress={() => { setFiltreDate(fd.key); if (fd.key === 'date_precise') setShowDatePicker(true); }}
                   >
                     <Ionicons name={fd.icon} size={12} color={actif ? '#fff' : theme.text3} />
@@ -704,75 +734,9 @@ export default function CarteScreen({ navigation }) {
             )}
 
             <View style={[styles.sep, { backgroundColor: theme.border }]} />
-            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>AFFICHAGE</Text>
 
-            {[
-              { key: 'communautaires', label: 'Événements communautaires', desc: 'Créés par les utilisateurs', icon: 'people-outline', actif: afficherCommunautaires, toggle: () => setAfficherCommunautaires(v => !v), bg: '#111' },
-              { key: 'officiels', label: 'Agenda Paris + Salles', desc: `${evenementsOfficiels.length} événements`, icon: 'calendar-outline', actif: afficherOfficiels, toggle: () => setAfficherOfficiels(v => !v), bg: '#2563EB' },
-              { key: 'lieux', label: 'Lieux officiels', desc: `${lieuxOfficiels.length} lieux · ${zoomSuffisant ? 'visibles' : 'zoome pour voir'}`, icon: 'location-outline', actif: afficherLieux, toggle: () => setAfficherLieux(v => !v), bg: '#475569' },
-            ].map(item => (
-              <TouchableOpacity
-                key={item.key}
-                style={[styles.menuItem, item.actif && {
-                  backgroundColor: item.bg === '#111' ? '#111' : item.bg === '#2563EB' ? '#EFF6FF' : '#F1F5F9',
-                }]}
-                onPress={item.toggle}
-              >
-                <View style={[styles.menuIcone, { backgroundColor: item.actif ? item.bg : '#F5F5F5' }]}>
-                  <Ionicons name={item.icon} size={13} color={item.actif ? '#fff' : '#888'} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: item.actif && item.bg === '#111' ? '#fff' : item.actif ? item.bg : theme.text, fontSize: t(13), fontWeight: item.actif ? '500' : '400' }}>
-                    {item.label}
-                  </Text>
-                  <Text style={{ color: item.actif && item.bg === '#111' ? 'rgba(255,255,255,0.6)' : theme.text3, fontSize: t(11) }}>
-                    {item.desc}
-                  </Text>
-                </View>
-                <View style={[styles.typeCheckbox, {
-                  backgroundColor: item.actif ? item.bg : 'transparent',
-                  borderColor: item.actif ? item.bg : theme.border,
-                }]}>
-                  {item.actif && <Ionicons name="checkmark" size={11} color="#fff" />}
-                </View>
-              </TouchableOpacity>
-            ))}
-
-            {afficherLieux && (
-              <>
-                <View style={[styles.sep, { backgroundColor: theme.border, marginLeft: 40 }]} />
-                {Object.entries(LIEUX_CONFIG).map(([cat, config]) => {
-                  const nb = lieuxOfficiels.filter(l => l.categorie === cat).length;
-                  if (nb === 0) return null;
-                  const actif = filtresCategoriesLieux.length === 0 || filtresCategoriesLieux.includes(cat);
-                  return (
-                    <TouchableOpacity
-                      key={cat}
-                      style={[styles.menuItem, { paddingLeft: 24 }, actif && { backgroundColor: config.bg }]}
-                      onPress={() => setFiltresCategoriesLieux(prev =>
-                        prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
-                      )}
-                    >
-                      <View style={[styles.menuIcone, { backgroundColor: actif ? config.couleur : '#F5F5F5', width: 22, height: 22, borderRadius: 6 }]}>
-                        <Ionicons name={config.icone} size={10} color={actif ? '#fff' : '#888'} />
-                      </View>
-                      <Text style={{ color: theme.text, fontSize: t(12), flex: 1 }}>
-                        {cat} <Text style={{ color: theme.text3 }}>({nb})</Text>
-                      </Text>
-                      {filtresCategoriesLieux.includes(cat) && (
-                        <View style={[styles.checkBox, { backgroundColor: config.couleur }]}>
-                          <Ionicons name="checkmark" size={9} color="#fff" />
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
-
-            <View style={[styles.sep, { backgroundColor: theme.border }]} />
+            {/* Catégories événements */}
             <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>CATÉGORIES</Text>
-
             <TouchableOpacity
               style={[styles.menuItem, filtresCategories.length === 0 && { backgroundColor: '#F5F5F5' }]}
               onPress={() => setFiltresCategories([])}
@@ -784,41 +748,38 @@ export default function CarteScreen({ navigation }) {
               {filtresCategories.length === 0 && <Ionicons name="checkmark" size={15} color="#2563EB" />}
             </TouchableOpacity>
 
-            {Object.entries(CATEGORIES_COULEURS).map(([nom, c]) => {
-              const actif = filtresCategories.includes(nom);
-              return (
-                <TouchableOpacity
-                  key={nom}
-                  style={[styles.menuItem, actif && { backgroundColor: c.claire }]}
-                  onPress={() => setFiltresCategories(prev =>
-                    prev.includes(nom) ? prev.filter(x => x !== nom) : [...prev, nom]
-                  )}
-                >
-                  <View style={[styles.menuIcone, { backgroundColor: actif ? c.forte : c.claire }]}>
-                    <Ionicons name={CAT_ICONES[nom] || 'construct-outline'} size={13} color={actif ? '#fff' : c.forte} />
-                  </View>
-                  <Text style={[styles.menuLabel, { color: actif ? c.texte : theme.text, fontSize: t(13), fontWeight: actif ? '500' : '400' }]}>
-                    {nom}
-                  </Text>
-                  {actif && (
-                    <View style={[styles.checkBox, { backgroundColor: c.forte }]}>
-                      <Ionicons name="checkmark" size={10} color="#fff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+            <View style={styles.catGrille}>
+              {Object.entries(CATEGORIES).map(([nom, c]) => {
+                const actif = filtresCategories.includes(nom);
+                return (
+                  <TouchableOpacity key={nom}
+                    style={[styles.catItem, {
+                      backgroundColor: actif ? c.forte : theme.card,
+                      borderColor: actif ? c.forte : theme.border,
+                    }]}
+                    onPress={() => setFiltresCategories(prev =>
+                      prev.includes(nom) ? prev.filter(x => x !== nom) : [...prev, nom]
+                    )}
+                  >
+                    <Ionicons name={c.icone} size={16} color={actif ? '#fff' : c.forte} />
+                    <Text style={{ color: actif ? '#fff' : theme.text, fontSize: t(10), fontWeight: actif ? '500' : '400', marginTop: 4, textAlign: 'center' }} numberOfLines={1}>
+                      {nom}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
             <View style={[styles.sep, { backgroundColor: theme.border }]} />
-            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>RAYON</Text>
 
+            {/* Rayon */}
+            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>RAYON</Text>
             {!positionUser && (
-              <View style={[styles.menuAvertissement, { backgroundColor: '#FEF3C7' }]}>
+              <View style={[styles.avertissement, { backgroundColor: '#FEF3C7' }]}>
                 <Ionicons name="location-outline" size={12} color="#92400E" />
                 <Text style={{ color: '#92400E', fontSize: t(11), flex: 1 }}>Active la localisation</Text>
               </View>
             )}
-
             <TouchableOpacity style={[styles.menuItem, !rayon && { backgroundColor: '#F5F5F5' }]} onPress={() => setRayon(null)}>
               <View style={[styles.menuIcone, { backgroundColor: '#F5F5F5' }]}>
                 <Ionicons name="globe-outline" size={13} color="#111" />
@@ -826,12 +787,13 @@ export default function CarteScreen({ navigation }) {
               <Text style={[styles.menuLabel, { color: theme.text, fontSize: t(13) }]}>Tout afficher</Text>
               {!rayon && <Ionicons name="checkmark" size={15} color="#2563EB" />}
             </TouchableOpacity>
-
             {RAYONS.map(r => (
-              <TouchableOpacity
-                key={r.valeur}
+              <TouchableOpacity key={r.valeur}
                 style={[styles.menuItem, rayon === r.valeur && { backgroundColor: '#DBEAFE' }]}
-                onPress={() => { setRayon(r.valeur); if (positionUser) { chargerLieux(positionUser, r.valeur); chargerEvenementsOfficiels(positionUser, r.valeur); } }}
+                onPress={() => {
+                  setRayon(r.valeur);
+                  if (positionUser) chargerLieux(positionUser, r.valeur * 2);
+                }}
               >
                 <View style={[styles.menuIcone, { backgroundColor: '#DBEAFE' }]}>
                   <Ionicons name="radio-button-on-outline" size={13} color="#2563EB" />
@@ -851,27 +813,18 @@ export default function CarteScreen({ navigation }) {
       )}
 
       {/* Popup communautaire */}
-      {pointSelectionne && (
+      {pointSelectionne && catSel && (
         <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnim }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
             <Ionicons name="close" size={18} color={theme.text3} />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16), marginBottom: 6, paddingRight: 24 }]}>
-            {pointSelectionne.titre}
-          </Text>
+          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]}>{pointSelectionne.titre}</Text>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            <View style={[styles.catBadge, { backgroundColor: catSelectionne.claire }]}>
-              <Ionicons name={CAT_ICONES[pointSelectionne.categorie] || 'construct-outline'} size={11} color={catSelectionne.forte} />
-              <Text style={{ color: catSelectionne.texte, fontSize: t(11), fontWeight: '500' }}>{pointSelectionne.categorie}</Text>
+            <View style={[styles.tag, { backgroundColor: catSel.claire }]}>
+              <Ionicons name={catSel.icone} size={11} color={catSel.forte} />
+              <Text style={{ color: catSel.texte, fontSize: t(11), fontWeight: '500' }}>{pointSelectionne.categorie}</Text>
             </View>
-            <View style={[styles.catBadge, { backgroundColor: pointSelectionne.type === 'fixe' ? '#DCFCE7' : '#F5F5F5' }]}>
-              <Ionicons name={pointSelectionne.type === 'fixe' ? 'location-outline' : 'timer-outline'} size={10}
-                color={pointSelectionne.type === 'fixe' ? '#22C55E' : '#888'} />
-              <Text style={{ color: pointSelectionne.type === 'fixe' ? '#15803D' : '#555', fontSize: t(10) }}>
-                {pointSelectionne.type === 'fixe' ? 'Lieu fixe' : 'Temporaire'}
-              </Text>
-            </View>
-            <View style={[styles.catBadge, { backgroundColor: '#111' }]}>
+            <View style={[styles.tag, { backgroundColor: '#111' }]}>
               <Text style={{ color: '#fff', fontSize: t(9), fontWeight: '500' }}>Communautaire</Text>
             </View>
           </View>
@@ -881,12 +834,6 @@ export default function CarteScreen({ navigation }) {
             </Text>
           ) : null}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12, alignItems: 'center' }}>
-            {pointSelectionne.duree ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="time-outline" size={13} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(12) }}>{pointSelectionne.duree}</Text>
-              </View>
-            ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#DCFCE7', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 }}>
               <Ionicons name="people-outline" size={13} color="#15803D" />
               <Text style={{ color: '#15803D', fontSize: t(12) }}>
@@ -900,20 +847,16 @@ export default function CarteScreen({ navigation }) {
             )}
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              style={[styles.btnPrincipal, { backgroundColor: catSelectionne.forte }]}
-              onPress={() => { fermerToutesPopups(); navigation.navigate('DetailEvenement', { evenement: pointSelectionne }); }}
-            >
+            <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: catSel.forte }]}
+              onPress={() => { fermerToutesPopups(); navigation.navigate('DetailEvenement', { evenement: pointSelectionne }); }}>
               <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Voir le détail</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnSecondaire, { backgroundColor: estFavori(pointSelectionne.id) ? '#FEF3C7' : theme.bg }]}
-              onPress={() => ajouterFavori(pointSelectionne)}
-            >
+            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: estFavori(pointSelectionne.id) ? '#FEF3C7' : theme.bg }]}
+              onPress={() => ajouterFavori(pointSelectionne)}>
               <Ionicons name={estFavori(pointSelectionne.id) ? 'bookmark' : 'bookmark-outline'} size={17}
                 color={estFavori(pointSelectionne.id) ? '#F59E0B' : theme.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btnSecondaire, { backgroundColor: theme.bg }]}
+            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: theme.bg }]}
               onPress={() => Share.share({ message: `Luma — ${pointSelectionne.titre}` })}>
               <Ionicons name="share-outline" size={17} color={theme.text} />
             </TouchableOpacity>
@@ -922,138 +865,134 @@ export default function CarteScreen({ navigation }) {
       )}
 
       {/* Popup officiel */}
-      {evenementOfficielSelectionne && (
+      {officielSelectionne && configOfficiel && (
         <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnimOfficiel }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
             <Ionicons name="close" size={18} color={theme.text3} />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16), marginBottom: 6, paddingRight: 24 }]} numberOfLines={2}>
-            {evenementOfficielSelectionne.titre}
+          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]} numberOfLines={2}>
+            {officielSelectionne.titre}
           </Text>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            <View style={[styles.catBadge, { backgroundColor: catOfficielle.claire }]}>
-              <Ionicons name={CAT_ICONES[evenementOfficielSelectionne.categorie] || 'calendar-outline'} size={11} color={catOfficielle.forte} />
-              <Text style={{ color: catOfficielle.forte, fontSize: t(11), fontWeight: '500' }}>{evenementOfficielSelectionne.categorie}</Text>
+            <View style={[styles.tag, { backgroundColor: configOfficiel.claire }]}>
+              <Ionicons name={configOfficiel.icone} size={11} color={configOfficiel.forte} />
+              <Text style={{ color: configOfficiel.texte, fontSize: t(11), fontWeight: '500' }}>{officielSelectionne.categorie}</Text>
             </View>
-            <View style={[styles.catBadge, { backgroundColor: couleurPopupOfficielle + '20' }]}>
-              <Ionicons name={configTypeSelectionne?.icone || 'shield-checkmark-outline'} size={9} color={couleurPopupOfficielle} />
-              <Text style={{ color: couleurPopupOfficielle, fontSize: t(10), fontWeight: '500' }}>
-                {configTypeSelectionne?.label || 'Officiel'}
-              </Text>
-            </View>
-            {evenementOfficielSelectionne.gratuit && (
-              <View style={[styles.catBadge, { backgroundColor: '#DCFCE7' }]}>
+            {officielSelectionne.source === 'ticketmaster' && (
+              <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={{ color: '#92400E', fontSize: t(9), fontWeight: '500' }}>🎟️ Ticketmaster</Text>
+              </View>
+            )}
+            {officielSelectionne.source === 'football' && (
+              <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}>
+                <Text style={{ color: '#15803D', fontSize: t(9), fontWeight: '500' }}>⚽ Football</Text>
+              </View>
+            )}
+            {officielSelectionne.gratuit && (
+              <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}>
                 <Text style={{ color: '#15803D', fontSize: t(10), fontWeight: '500' }}>Gratuit</Text>
               </View>
             )}
+            {officielSelectionne.prix_min && (
+              <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={{ color: '#92400E', fontSize: t(10) }}>À partir de {officielSelectionne.prix_min}€</Text>
+              </View>
+            )}
           </View>
-          {evenementOfficielSelectionne.salle && (
+          {officielSelectionne.salle && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="musical-notes" size={13} color={couleurPopupOfficielle} />
-              <Text style={{ color: couleurPopupOfficielle, fontSize: t(13), fontWeight: '500' }}>{evenementOfficielSelectionne.salle}</Text>
+              <Ionicons name="location-outline" size={13} color={configOfficiel.forte} />
+              <Text style={{ color: configOfficiel.forte, fontSize: t(13), fontWeight: '500' }}>{officielSelectionne.salle}</Text>
             </View>
           )}
-          {evenementOfficielSelectionne.description && (
+          {officielSelectionne.description && (
             <Text style={{ color: theme.text2, fontSize: t(13), lineHeight: 19, marginBottom: 8 }} numberOfLines={2}>
-              {evenementOfficielSelectionne.description}
+              {officielSelectionne.description}
             </Text>
           )}
-          {evenementOfficielSelectionne.date_debut && (
+          {officielSelectionne.date_debut && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="calendar-outline" size={13} color={couleurPopupOfficielle} />
-              <Text style={{ color: couleurPopupOfficielle, fontSize: t(12), fontWeight: '500' }}>
-                {new Date(evenementOfficielSelectionne.date_debut).toLocaleDateString('fr-FR', {
-                  weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                })}
+              <Ionicons name="calendar-outline" size={13} color={configOfficiel.forte} />
+              <Text style={{ color: configOfficiel.forte, fontSize: t(12), fontWeight: '500' }}>
+                {formatDateParis(officielSelectionne.date_debut)}
               </Text>
             </View>
           )}
-          {evenementOfficielSelectionne.lieu && (
+          {officielSelectionne.lieu && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Ionicons name="location-outline" size={13} color={theme.text3} />
-              <Text style={{ color: theme.text2, fontSize: t(12), flex: 1 }} numberOfLines={1}>
-                {evenementOfficielSelectionne.lieu}
-              </Text>
+              <Text style={{ color: theme.text2, fontSize: t(12), flex: 1 }} numberOfLines={1}>{officielSelectionne.lieu}</Text>
             </View>
           )}
-          {positionUser && (
+          {positionUser && officielSelectionne.latitude && (
             <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 10 }}>
               {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
-                parseFloat(evenementOfficielSelectionne.latitude),
-                parseFloat(evenementOfficielSelectionne.longitude)) * 10) / 10} km
+                parseFloat(officielSelectionne.latitude), parseFloat(officielSelectionne.longitude)) * 10) / 10} km
             </Text>
           )}
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity
-              style={[styles.btnPrincipal, { backgroundColor: couleurPopupOfficielle }]}
-              onPress={() => {
-                fermerToutesPopups();
-                navigation.navigate('DetailEvenementOfficiel', { evenement: evenementOfficielSelectionne });
-              }}
+              style={[styles.btnPrimary, { backgroundColor: configOfficiel.forte }]}
+              onPress={() => { fermerToutesPopups(); navigation.navigate('DetailEvenementOfficiel', { evenement: officielSelectionne }); }}
             >
               <Ionicons name="arrow-forward" size={15} color="#fff" />
               <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Voir le détail</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btnSecondaire, { backgroundColor: theme.bg }]}
-              onPress={() => Share.share({ message: `${evenementOfficielSelectionne.titre}\n${evenementOfficielSelectionne.url || ''}` })}>
+            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: theme.bg }]}
+              onPress={() => Share.share({ message: `${officielSelectionne.titre}\n${officielSelectionne.url || ''}` })}>
               <Ionicons name="share-outline" size={17} color={theme.text} />
             </TouchableOpacity>
           </View>
         </Animated.View>
       )}
 
-      {/* Popup lieu */}
-      {lieuSelectionne && (
+      {/* Popup lieu — navigue vers DetailLieu */}
+      {lieuSelectionne && configLieuSel && (
         <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnimLieu }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
             <Ionicons name="close" size={18} color={theme.text3} />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16), marginBottom: 6, paddingRight: 24 }]} numberOfLines={2}>
+          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]} numberOfLines={2}>
             {lieuSelectionne.nom}
           </Text>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            <View style={[styles.catBadge, { backgroundColor: configLieu.bg }]}>
-              <Ionicons name={configLieu.icone} size={11} color={configLieu.couleur} />
-              <Text style={{ color: configLieu.couleur, fontSize: t(11), fontWeight: '500' }}>{lieuSelectionne.categorie}</Text>
+            <View style={[styles.tag, { backgroundColor: configLieuSel.bg || '#F5F5F5' }]}>
+              <Ionicons name={configLieuSel.icone} size={11} color={configLieuSel.couleur || configLieuSel.forte} />
+              <Text style={{ color: configLieuSel.couleur || configLieuSel.forte, fontSize: t(11), fontWeight: '500' }}>
+                {lieuSelectionne.sous_categorie || lieuSelectionne.categorie}
+              </Text>
             </View>
-            {lieuSelectionne.sous_categorie && lieuSelectionne.sous_categorie !== lieuSelectionne.categorie && (
-              <View style={[styles.catBadge, { backgroundColor: '#F5F5F5' }]}>
-                <Text style={{ color: '#666', fontSize: t(10) }}>{lieuSelectionne.sous_categorie}</Text>
-              </View>
-            )}
           </View>
-          {lieuSelectionne.adresse ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          {lieuSelectionne.adresse && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Ionicons name="location-outline" size={13} color={theme.text3} />
               <Text style={{ color: theme.text2, fontSize: t(13), flex: 1 }}>{lieuSelectionne.adresse}</Text>
             </View>
-          ) : null}
-          {lieuSelectionne.horaires ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="time-outline" size={13} color={theme.text3} />
-              <Text style={{ color: theme.text2, fontSize: t(12), flex: 1 }} numberOfLines={2}>{lieuSelectionne.horaires}</Text>
-            </View>
-          ) : null}
-          {lieuSelectionne.telephone ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="call-outline" size={13} color={theme.text3} />
-              <Text style={{ color: theme.text2, fontSize: t(13) }}>{lieuSelectionne.telephone}</Text>
-            </View>
-          ) : null}
-          {positionUser && (
+          )}
+          {positionUser && lieuSelectionne.latitude && (
             <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 10 }}>
               {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
-                parseFloat(lieuSelectionne.latitude),
-                parseFloat(lieuSelectionne.longitude)) * 10) / 10} km
+                parseFloat(lieuSelectionne.latitude), parseFloat(lieuSelectionne.longitude)) * 10) / 10} km
             </Text>
           )}
-          <TouchableOpacity
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 12, padding: 12, backgroundColor: '#111' }}
-            onPress={() => { fermerToutesPopups(); navigation.navigate('AjoutEvenement'); }}
-          >
-            <Ionicons name="add-circle-outline" size={16} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Créer un événement ici</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity
+              style={[styles.btnPrimary, { backgroundColor: configLieuSel.couleur || '#111' }]}
+              onPress={() => {
+                fermerToutesPopups();
+                navigation.navigate('DetailLieu', { lieu: lieuSelectionne });
+              }}
+            >
+              <Ionicons name="grid-outline" size={15} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Voir la programmation</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnIcon, { backgroundColor: theme.bg }]}
+              onPress={() => { fermerToutesPopups(); navigation.navigate('AjoutEvenement'); }}
+            >
+              <Ionicons name="add" size={20} color={theme.text} />
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       )}
 
@@ -1065,23 +1004,34 @@ export default function CarteScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#fff' },
   map: { flex: 1 },
+
+  // Marqueurs — TAILLES FIXES
+  mWrap: { width: 42, height: 42, alignItems: 'center', justifyContent: 'flex-start' },
+  mAnneau: { position: 'absolute', width: 42, height: 42, borderRadius: 21, borderWidth: 2.5, opacity: 0.45, top: 0, left: 0 },
+  mBulle: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginTop: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3, elevation: 4 },
+  mOfficiel: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginTop: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 3 },
+  mQueue: { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 5, borderLeftColor: 'transparent', borderRightColor: 'transparent', marginTop: -1 },
+  mFixeWrap: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  mCarre: { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3, elevation: 4 },
+  mPoint: { position: 'absolute', bottom: 2, right: 2, width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  mLieuWrap: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  mLieu: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#fff', elevation: 2 },
+
   erreurBanner: { position: 'absolute', top: 96, left: 16, right: 16, backgroundColor: '#EF4444', flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 14, gap: 8, zIndex: 5, borderRadius: 12 },
-  erreurTexte: { color: '#fff', fontSize: 13, flex: 1 },
-  reessayerBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  reessayerTexte: { color: '#fff', fontSize: 12, fontWeight: '500' },
+  erreurBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   filtresActifsWrap: { position: 'absolute', top: 96, left: 0, right: 0, zIndex: 4 },
-  filtreActifBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1.5 },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1.5 },
   header: { position: 'absolute', top: 52, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10 },
   logoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20 },
   logoIcone: { width: 20, height: 20, borderRadius: 6, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
-  logo: { fontWeight: '500', color: '#111' },
+  logoTexte: { fontWeight: '500', color: '#111' },
   filtreCount: { backgroundColor: '#EF4444', borderRadius: 10, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  menu: { position: 'absolute', top: 96, left: 16, width: 260, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 8, maxHeight: 560, zIndex: 9 },
-  menuHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 0.5 },
-  menuTitreTexte: { fontWeight: '500' },
+  menu: { position: 'absolute', top: 96, left: 16, width: 285, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 8, maxHeight: 600, zIndex: 9 },
+  menuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 0.5 },
+  menuTitre: { fontWeight: '500' },
   effacerBtn: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   fermerBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   fermerBas: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, margin: 10, borderRadius: 12, padding: 10 },
@@ -1089,16 +1039,19 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 8, borderRadius: 10, marginHorizontal: 4 },
   menuIcone: { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   menuLabel: { flex: 1 },
-  typeCheckbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  checkBox: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  menuAvertissement: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 8, marginBottom: 4, marginHorizontal: 4 },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  avertissement: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 8, marginBottom: 4, marginHorizontal: 4 },
   sep: { height: 0.5, marginVertical: 6, marginHorizontal: 8 },
-  dateChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
+  catGrille: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8 },
+  catItem: { width: '30%', alignItems: 'center', justifyContent: 'center', padding: 10, borderRadius: 12, borderWidth: 1.5, minHeight: 64 },
+  catGrilleLieux: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 8, paddingBottom: 8 },
+  lieuCatItem: { width: '30%', alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 10, borderWidth: 1.5, minHeight: 60 },
   popup: { position: 'absolute', bottom: 180, left: 12, right: 12, borderRadius: 20, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 8, zIndex: 10 },
   popupClose: { position: 'absolute', top: 14, right: 14, zIndex: 1 },
-  popupTitre: { fontWeight: '500' },
-  catBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
-  btnPrincipal: { flex: 1, borderRadius: 12, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  btnSecondaire: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  popupTitre: { fontWeight: '500', marginBottom: 6, paddingRight: 24 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
+  btnPrimary: { flex: 1, borderRadius: 12, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  btnIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   fab: { position: 'absolute', bottom: 100, right: 16, width: 48, height: 48, backgroundColor: '#111', borderRadius: 24, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6, zIndex: 10 },
 });
