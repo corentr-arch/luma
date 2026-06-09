@@ -12,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#111111"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.luma.app",
@@ -21,7 +23,11 @@
         "NSLocationWhenInUseUsageDescription": "Luma utilise ta position pour centrer la carte sur toi et trouver les événements proches.",
         "NSLocationAlwaysUsageDescription": "Luma utilise ta position pour les notifications d'événements proches.",
         "NSPhotoLibraryUsageDescription": "Luma accède à tes photos pour que tu puisses choisir une photo de profil.",
-        "NSCameraUsageDescription": "Luma accède à ta caméra pour prendre une photo de profil."
+        "NSCameraUsageDescription": "Luma accède à ta caméra pour prendre une photo de profil.",
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -32,11 +38,12 @@
       "package": "com.luma.app",
       "versionCode": 1,
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "CAMERA"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -45,15 +52,19 @@
       [
         "expo-notifications",
         {
-          "color": "#2563EB"
+          "icon": "./assets/icon.png",
+          "color": "#2563EB",
+          "sounds": [],
+          "mode": "production"
         }
       ],
       "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {
-        "projectId": "COLLE_TON_PROJECT_ID_ICI"
+        "projectId": "3687e53e-3daf-4916-9132-a720982a44db"
       }
-    }
+    },
+    "owner": "cocoluma"
   }
 }
