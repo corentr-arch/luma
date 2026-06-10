@@ -4,7 +4,6 @@ import { supabase } from './supabase';
 
 const AppContext = createContext();
 
-// Catégories unifiées — lieux ET événements
 export const CATEGORIES = {
   'Sport':              { forte: '#2563EB', claire: '#DBEAFE', texte: '#1E40AF', icone: 'football-outline' },
   'Musique':            { forte: '#A855F7', claire: '#F3E8FF', texte: '#7E22CE', icone: 'musical-notes-outline' },
@@ -20,68 +19,40 @@ export const CATEGORIES = {
   'Gaming':             { forte: '#7C3AED', claire: '#EDE9FE', texte: '#5B21B6', icone: 'game-controller-outline' },
 };
 
-// Mapping événements officiels → catégorie unifiée
 export function mappingCategorie(tags, titre, description, lieu) {
   const tout = [
     ...(Array.isArray(tags) ? tags : [String(tags || '')]),
     titre || '', description || '', lieu || '',
   ].join(' ').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // Gaming — très spécifique
-  if (tout.match(/\b(esport|gaming|jeux.video|game.controller|nintendo|playstation|xbox|twitch|streamer|tournoi.gaming)\b/)) return 'Gaming';
-
-  // Cinéma
-  if (tout.match(/\b(cinema|ugc|mk2|pathe|gaumont|louxor|film|projection|seance|avant.premiere|cine.club|cinematheque|pellicule)\b/)) return 'Cinéma';
-
-  // Théâtre
-  if (tout.match(/\b(theatre|comedie.francaise|odeon|piece.de.theatre|mise.en.scene|dramaturgie|comedie|humour|stand.up|one.man.show|sketch|cirque|acrobat|danse|ballet|opera|lyrique)\b/)) return 'Théâtre';
-
-  // Musique
-  if (tout.match(/\b(concert|festival|jazz|blues|rock|metal|pop|electro|rap|rnb|hip.hop|folk|classique|orchestre|symphonie|philharmonie|chanson|live.music|dj.set|musique)\b/)) return 'Musique';
-
-  // Sport
-  if (tout.match(/\b(sport|fitness|yoga|pilates|running|marathon|match|tournoi|championnat|competition|natation|tennis|foot|rugby|basket|volley|escalade|boxe|judo|karate|gym|zumba|musculation|randonnee)\b/)) return 'Sport';
-
-  // Nature & Bien-être
-  if (tout.match(/\b(nature|jardin|jardinage|botanique|plantes|environnement|ecologie|meditation|sophrologie|relaxation|bien.etre|balade.nature|foret|parc)\b/)) return 'Nature & Bien-être';
-
-  // Famille
-  if (tout.match(/\b(enfant|famille|kids|jeunesse|bebe|conte|animation.enfant|spectacle.jeunesse|eveil|scolaire|parent)\b/)) return 'Famille';
-
-  // Marché
-  if (tout.match(/\b(marche|brocante|vide.grenier|salon|foire|braderie|puces|artisanat)\b/)) return 'Marché';
-
-  // Entraide
-  if (tout.match(/\b(solidarite|benevol|entraide|humanitaire|social|don|collecte|association|citoyen)\b/)) return 'Entraide';
-
-  // Cours
-  if (tout.match(/\b(conference|debat|atelier|workshop|masterclass|formation|cours|initiation|stage|visite.guidee|lecture|librairie|livre|litterature|patrimoine|histoire|architecture|poesie|slam)\b/)) return 'Cours';
-
-  // Art — tout le reste culturel
-  if (tout.match(/\b(exposition|expo|galerie|vernissage|art|peinture|sculpture|photo|street.art|installation|musee|collection)\b/)) return 'Art';
-
-  return 'Art'; // fallback
+  if (tout.match(/\b(esport|gaming|jeux.video|game.controller|nintendo|playstation|xbox|twitch)\b/)) return 'Gaming';
+  if (tout.match(/\b(cinema|ugc|mk2|pathe|gaumont|louxor|film|projection|seance|cine)\b/)) return 'Cinéma';
+  if (tout.match(/\b(theatre|comedie.francaise|odeon|piece.de.theatre|mise.en.scene|danse|ballet|opera|cirque|humour|stand.up)\b/)) return 'Théâtre';
+  if (tout.match(/\b(concert|festival|jazz|blues|rock|metal|pop|electro|rap|rnb|hip.hop|classique|orchestre|symphonie|chanson|musique)\b/)) return 'Musique';
+  if (tout.match(/\b(sport|fitness|yoga|pilates|running|marathon|match|tournoi|natation|tennis|foot|rugby|basket|gym)\b/)) return 'Sport';
+  if (tout.match(/\b(nature|jardin|jardinage|meditation|sophrologie|bien.etre|balade|foret)\b/)) return 'Nature & Bien-être';
+  if (tout.match(/\b(enfant|famille|kids|jeunesse|bebe|conte|animation.enfant)\b/)) return 'Famille';
+  if (tout.match(/\b(marche|brocante|vide.grenier|salon|foire|braderie)\b/)) return 'Marché';
+  if (tout.match(/\b(solidarite|benevol|entraide|humanitaire|don|collecte)\b/)) return 'Entraide';
+  if (tout.match(/\b(conference|debat|atelier|workshop|masterclass|formation|cours|visite.guidee|lecture|livre)\b/)) return 'Cours';
+  if (tout.match(/\b(exposition|expo|galerie|vernissage|art|peinture|sculpture|photo|musee)\b/)) return 'Art';
+  return 'Art';
 }
 
-// Formate la date en heure Paris — corrige le décalage UTC
 export function formatDateParis(dateStr) {
   if (!dateStr) return null;
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return null;
-
-    // Heure UTC 00:00 = pas d'heure définie dans l'API QFP → affiche juste la date
     const heureUTC = d.getUTCHours();
     const minutesUTC = d.getUTCMinutes();
     const pasDheure = heureUTC === 0 && minutesUTC === 0;
-
     if (pasDheure) {
       return d.toLocaleDateString('fr-FR', {
         weekday: 'short', day: 'numeric', month: 'short',
         timeZone: 'Europe/Paris',
       });
     }
-
     return d.toLocaleDateString('fr-FR', {
       weekday: 'short', day: 'numeric', month: 'short',
       hour: '2-digit', minute: '2-digit',
@@ -129,7 +100,10 @@ export function AppProvider({ children }) {
 
   const sauvegarderReglages = useCallback(async (nouveauxReglages) => {
     try {
-      const actuels = { modeSombre, tailleTexte, daltonien, rayonDefaut, animationsReduites, visibiliteDefaut, notifications };
+      const actuels = {
+        modeSombre, tailleTexte, daltonien, rayonDefaut,
+        animationsReduites, visibiliteDefaut, notifications,
+      };
       await AsyncStorage.setItem(REGLAGES_KEY, JSON.stringify({ ...actuels, ...nouveauxReglages }));
     } catch {}
   }, [modeSombre, tailleTexte, daltonien, rayonDefaut, animationsReduites, visibiliteDefaut, notifications]);
@@ -181,12 +155,14 @@ export function AppProvider({ children }) {
   }, [favoris]);
 
   const estFavori = useCallback((id) => favoris.some(f => f.id === id), [favoris]);
+
   const bloquerUtilisateur = useCallback((utilisateur) => {
     setUtilisateursBlockes(prev => {
       const existe = prev.find(u => u.id === utilisateur.id);
       return existe ? prev.filter(u => u.id !== utilisateur.id) : [...prev, utilisateur];
     });
   }, []);
+
   const deconnexion = useCallback(async () => {
     await supabase.auth.signOut();
     setFavoris([]);
@@ -194,7 +170,10 @@ export function AppProvider({ children }) {
   }, []);
 
   const facteurTexte = useMemo(() =>
-    tailleTexte === 'petite' ? 0.85 : tailleTexte === 'grande' ? 1.2 : tailleTexte === 'tres_grande' ? 1.4 : 1,
+    tailleTexte === 'petite' ? 0.85
+    : tailleTexte === 'grande' ? 1.2
+    : tailleTexte === 'tres_grande' ? 1.4
+    : 1,
   [tailleTexte]);
 
   const theme = useMemo(() => modeSombre ? {
@@ -209,7 +188,6 @@ export function AppProvider({ children }) {
     actif: '#111111', inactif: '#BBBBBB',
   }, [modeSombre]);
 
-  // Compatibilité avec l'ancien code qui utilise CATEGORIES_COULEURS et CAT_ICONES
   const CATEGORIES_COULEURS = useMemo(() => {
     const result = {};
     Object.entries(CATEGORIES).forEach(([nom, c]) => {
