@@ -473,7 +473,7 @@ export default function CarteScreen({ navigation }) {
         onPress={() => { if (menuOuvert) fermerMenu(); fermerToutesPopups(); }}
         onRegionChangeComplete={(region) => {
           setRegionActuelle(region);
-          setZoomSuffisant(region.latitudeDelta < 0.25);
+          setZoomSuffisant(region.latitudeDelta < 0.30);
         }}
       >
         {rayon && positionUser && (
