@@ -84,9 +84,9 @@ function getPlageDates(filtre, datePrecise) {
   }
 }
 
-// ── MARQUEURS — taille FIXE, SANS estSelectionne dans le rendu ───────────────
-// La surbrillance est gérée par un Marker overlay séparé dans MapView
-// Cela évite tout re-render du marqueur natif iOS → plus de disparition
+// ── MARQUEURS — style rond blanc avec bordure colorée ─────────────────────────
+// Fond blanc, bordure colorée épaisse, icône colorée au centre
+// Taille FIXE — pas d'estSelectionne dans le rendu → zéro disparition iOS
 
 const MarqueurCommunautaire = memo(({ id, latitude, longitude, categorie, onPress }) => {
   const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
@@ -97,14 +97,11 @@ const MarqueurCommunautaire = memo(({ id, latitude, longitude, categorie, onPres
       tracksViewChanges={false}
       calloutEnabled={false}
       identifier={`ev_${id}`}
-      anchor={{ x: 0.5, y: 1 }}
+      anchor={{ x: 0.5, y: 0.5 }}
       zIndex={2}
     >
-      <View pointerEvents="none" style={styles.mWrap}>
-        <View style={[styles.mBulle, { backgroundColor: cat.forte }]}>
-          <Ionicons name={cat.icone} size={13} color="#fff" />
-        </View>
-        <View style={[styles.mQueue, { borderTopColor: cat.forte }]} />
+      <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
+        <Ionicons name={cat.icone} size={14} color={cat.forte} />
       </View>
     </Marker>
   );
@@ -122,13 +119,8 @@ const MarqueurFixe = memo(({ id, latitude, longitude, categorie, onPress }) => {
       anchor={{ x: 0.5, y: 0.5 }}
       zIndex={2}
     >
-      <View pointerEvents="none" style={styles.mFixeWrap}>
-        <View style={[styles.mCarre, { backgroundColor: cat.forte }]}>
-          <Ionicons name={cat.icone} size={11} color="#fff" />
-        </View>
-        <View style={[styles.mPoint, { backgroundColor: cat.forte }]}>
-          <Ionicons name="location" size={5} color="#fff" />
-        </View>
+      <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
+        <Ionicons name={cat.icone} size={14} color={cat.forte} />
       </View>
     </Marker>
   );
@@ -143,18 +135,11 @@ const MarqueurOfficiel = memo(({ id, latitude, longitude, categorie, onPress }) 
       tracksViewChanges={false}
       calloutEnabled={false}
       identifier={`off_${id}`}
-      anchor={{ x: 0.5, y: 1 }}
+      anchor={{ x: 0.5, y: 0.5 }}
       zIndex={3}
     >
-      <View pointerEvents="none" style={styles.mWrap}>
-        <View style={[styles.mBulle, {
-          backgroundColor: cat.forte,
-          borderWidth: 1.5,
-          borderColor: 'rgba(255,255,255,0.5)',
-        }]}>
-          <Ionicons name={cat.icone.replace('-outline', '')} size={11} color="#fff" />
-        </View>
-        <View style={[styles.mQueue, { borderTopColor: cat.forte }]} />
+      <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
+        <Ionicons name={cat.icone.replace('-outline', '')} size={13} color={cat.forte} />
       </View>
     </Marker>
   );
@@ -172,14 +157,8 @@ const MarqueurLieu = memo(({ lieu, onPress }) => {
       anchor={{ x: 0.5, y: 0.5 }}
       zIndex={1}
     >
-      <View pointerEvents="none" style={styles.mLieuWrap}>
-        <View style={[styles.mLieu, {
-          backgroundColor: config.couleur,
-          borderWidth: 1.5,
-          borderColor: '#fff',
-        }]}>
-          <Ionicons name={config.icone} size={9} color="#fff" />
-        </View>
+      <View pointerEvents="none" style={[styles.mRondSmall, { borderColor: config.couleur }]}>
+        <Ionicons name={config.icone} size={10} color={config.couleur} />
       </View>
     </Marker>
   );
@@ -190,7 +169,7 @@ const MarqueurLieu = memo(({ lieu, onPress }) => {
 export default function CarteScreen({ navigation }) {
   const { evenements, erreurReseau, chargerEvenements } = useEvenements();
   const {
-    theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES,
+    theme, facteurTexte,
     ajouterFavori, estFavori,
     evenementCible, setEvenementCible,
   } = useApp();
@@ -199,7 +178,6 @@ export default function CarteScreen({ navigation }) {
   const [officielSelectionne, setOfficielSelectionne] = useState(null);
   const [lieuSelectionne, setLieuSelectionne] = useState(null);
   const [idSelectionne, setIdSelectionne] = useState(null);
-  // Coordonnées du marqueur sélectionné pour l'overlay
   const [coordSurbrillance, setCoordSurbrillance] = useState(null);
   const [couleurSurbrillance, setCouleurSurbrillance] = useState('#2563EB');
 
@@ -432,12 +410,9 @@ export default function CarteScreen({ navigation }) {
         : FILTRES_DATE.find(f => f.key === filtreDate)?.label)
     : null;
 
-  const catSel = pointSelectionne
-    ? (CATEGORIES[pointSelectionne.categorie] || CATEGORIES['Art']) : null;
-  const configOfficiel = officielSelectionne
-    ? (CATEGORIES[officielSelectionne.categorie] || CATEGORIES['Art']) : null;
-  const configLieuSel = lieuSelectionne
-    ? getLieuConfig(lieuSelectionne.categorie, lieuSelectionne.sous_categorie) : null;
+  const catSel = pointSelectionne ? (CATEGORIES[pointSelectionne.categorie] || CATEGORIES['Art']) : null;
+  const configOfficiel = officielSelectionne ? (CATEGORIES[officielSelectionne.categorie] || CATEGORIES['Art']) : null;
+  const configLieuSel = lieuSelectionne ? getLieuConfig(lieuSelectionne.categorie, lieuSelectionne.sous_categorie) : null;
 
   if (!pret) {
     return (
@@ -473,7 +448,7 @@ export default function CarteScreen({ navigation }) {
         onPress={() => { if (menuOuvert) fermerMenu(); fermerToutesPopups(); }}
         onRegionChangeComplete={(region) => {
           setRegionActuelle(region);
-          setZoomSuffisant(region.latitudeDelta < 0.30);
+          setZoomSuffisant(region.latitudeDelta < 0.25);
         }}
       >
         {rayon && positionUser && (
@@ -525,7 +500,7 @@ export default function CarteScreen({ navigation }) {
           )
         )}
 
-        {/* Overlay surbrillance — Marker séparé, ne touche jamais aux autres marqueurs */}
+        {/* Overlay surbrillance */}
         {coordSurbrillance && (
           <Marker
             key="overlay_surbrillance"
@@ -537,11 +512,10 @@ export default function CarteScreen({ navigation }) {
             onPress={() => {}}
           >
             <View pointerEvents="none" style={{
-              width: 54, height: 54,
-              borderRadius: 27,
+              width: 44, height: 44, borderRadius: 22,
               borderWidth: 3,
               borderColor: couleurSurbrillance,
-              backgroundColor: couleurSurbrillance + '25',
+              backgroundColor: couleurSurbrillance + '20',
             }} />
           </Marker>
         )}
@@ -599,6 +573,7 @@ export default function CarteScreen({ navigation }) {
         </View>
       )}
 
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={[styles.logoBtn, { backgroundColor: 'rgba(255,255,255,0.96)' }]}
@@ -629,6 +604,7 @@ export default function CarteScreen({ navigation }) {
         </View>
       </View>
 
+      {/* Menu filtres */}
       {menuOuvert && (
         <Animated.View style={[styles.menu, { backgroundColor: theme.card, transform: [{ translateY: menuAnim }] }]}>
           <View style={[styles.menuHeader, { borderBottomColor: theme.border }]}>
@@ -698,9 +674,7 @@ export default function CarteScreen({ navigation }) {
                         <Text style={{ color: actif ? '#fff' : theme.text, fontSize: t(10), fontWeight: actif ? '500' : '400', marginTop: 3, textAlign: 'center' }} numberOfLines={2}>
                           {nom}
                         </Text>
-                        <Text style={{ color: actif ? 'rgba(255,255,255,0.7)' : theme.text3, fontSize: t(9) }}>
-                          ({nb})
-                        </Text>
+                        <Text style={{ color: actif ? 'rgba(255,255,255,0.7)' : theme.text3, fontSize: t(9) }}>({nb})</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -746,7 +720,6 @@ export default function CarteScreen({ navigation }) {
               <Text style={[styles.menuLabel, { color: theme.text, fontSize: t(13) }]}>Toutes</Text>
               {filtresCategories.length === 0 && <Ionicons name="checkmark" size={15} color="#2563EB" />}
             </TouchableOpacity>
-
             <View style={styles.catGrille}>
               {Object.entries(CATEGORIES).map(([nom, c]) => {
                 const actif = filtresCategories.includes(nom);
@@ -812,9 +785,7 @@ export default function CarteScreen({ navigation }) {
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
             <Ionicons name="close" size={18} color={theme.text3} />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]}>
-            {pointSelectionne.titre}
-          </Text>
+          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]}>{pointSelectionne.titre}</Text>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             <View style={[styles.tag, { backgroundColor: catSel.claire }]}>
               <Ionicons name={catSel.icone} size={11} color={catSel.forte} />
@@ -994,14 +965,25 @@ export default function CarteScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   map: { flex: 1 },
-  mWrap: { width: 38, height: 38, alignItems: 'center', justifyContent: 'flex-start' },
-  mBulle: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 5 },
-  mQueue: { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 6, borderLeftColor: 'transparent', borderRightColor: 'transparent', marginTop: -1 },
-  mFixeWrap: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  mCarre: { width: 24, height: 24, borderRadius: 6, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3, elevation: 4 },
-  mPoint: { position: 'absolute', bottom: 2, right: 2, width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  mLieuWrap: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
-  mLieu: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', elevation: 2 },
+
+  // ── Marqueurs ronds blanc + bordure colorée ──
+  mRond: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 2.5,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15, shadowRadius: 3, elevation: 4,
+  },
+  mRondSmall: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12, shadowRadius: 2, elevation: 3,
+  },
+
   erreurBanner: { position: 'absolute', top: 96, left: 16, right: 16, backgroundColor: '#EF4444', flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 14, gap: 8, zIndex: 5, borderRadius: 12 },
   erreurBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   filtresActifsWrap: { position: 'absolute', top: 96, left: 0, right: 0, zIndex: 4 },
