@@ -84,9 +84,7 @@ function getPlageDates(filtre, datePrecise) {
   }
 }
 
-// ── MARQUEURS — style rond blanc avec bordure colorée ─────────────────────────
-// Fond blanc, bordure colorée épaisse, icône colorée au centre
-// Taille FIXE — pas d'estSelectionne dans le rendu → zéro disparition iOS
+// ── MARQUEURS — taille fixe, sans estSelectionne ──────────────────────────────
 
 const MarqueurCommunautaire = memo(({ id, latitude, longitude, categorie, onPress }) => {
   const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
@@ -191,6 +189,7 @@ export default function CarteScreen({ navigation }) {
   const [datePrecise, setDatePrecise] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [rayon, setRayon] = useState(null);
+  const [interetsCharges, setInteretsCharges] = useState(false);
 
   const [positionUser, setPositionUser] = useState(null);
   const [lieuxOfficiels, setLieuxOfficiels] = useState([]);
@@ -206,8 +205,29 @@ export default function CarteScreen({ navigation }) {
   const mapRef = useRef(null);
   const t = (size) => size * facteurTexte;
 
+  // Charge les intérêts une seule fois au premier lancement
+  const chargerInterets = async () => {
+    if (interetsCharges) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profil } = await supabase
+          .from('profiles')
+          .select('interets')
+          .eq('id', user.id)
+          .single();
+        if (profil?.interets && profil.interets.length > 0) {
+          setFiltresCategories(profil.interets);
+        }
+      }
+    } catch {}
+    setInteretsCharges(true);
+  };
+
   useEffect(() => {
     (async () => {
+      await chargerInterets();
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -500,7 +520,6 @@ export default function CarteScreen({ navigation }) {
           )
         )}
 
-        {/* Overlay surbrillance */}
         {coordSurbrillance && (
           <Marker
             key="overlay_surbrillance"
@@ -965,25 +984,20 @@ export default function CarteScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   map: { flex: 1 },
-
-  // ── Marqueurs ronds blanc + bordure colorée ──
   mRond: {
     width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#fff',
-    borderWidth: 2.5,
+    backgroundColor: '#fff', borderWidth: 2.5,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.15, shadowRadius: 3, elevation: 4,
   },
   mRondSmall: {
     width: 26, height: 26, borderRadius: 13,
-    backgroundColor: '#fff',
-    borderWidth: 2,
+    backgroundColor: '#fff', borderWidth: 2,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12, shadowRadius: 2, elevation: 3,
   },
-
   erreurBanner: { position: 'absolute', top: 96, left: 16, right: 16, backgroundColor: '#EF4444', flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 14, gap: 8, zIndex: 5, borderRadius: 12 },
   erreurBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   filtresActifsWrap: { position: 'absolute', top: 96, left: 0, right: 0, zIndex: 4 },
