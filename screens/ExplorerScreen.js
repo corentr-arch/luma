@@ -1,211 +1,143 @@
 import {
-  View, Text, StyleSheet, SectionList, TouchableOpacity,
-  TextInput, ScrollView, Image, Linking,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  FlatList, Image, TextInput, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useCallback, memo, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEvenements } from '../EvenementsContext';
-import { useApp } from '../AppContext';
+import { useApp, CATEGORIES } from '../AppContext';
 import { supabase } from '../supabase';
+import StoriesBar from '../components/StoriesBar';
+import StoryViewer from '../components/StoryViewer';
 
-const FILTRES_TYPE = [
-  { key: 'tous',          label: 'Tout',           icon: 'apps-outline' },
-  { key: 'communautaire', label: 'Communautaires', icon: 'people-outline' },
-  { key: 'officiel',      label: 'Agenda Paris',   icon: 'calendar-outline' },
-  { key: 'salle',         label: 'Salles',         icon: 'musical-notes-outline' },
-  { key: 'fixe',          label: 'Lieux fixes',    icon: 'location-outline' },
+const CATEGORIES_LIEUX = [
+  { key: 'musique',  label: 'Musique',   icon: 'musical-notes', couleur: '#A855F7', bg: '#F3E8FF', sousCats: ['Salle de concert', 'Opéra'] },
+  { key: 'cinema',   label: 'Cinéma',    icon: 'film',          couleur: '#9F1239', bg: '#FFF1F2', sousCats: ['Cinéma'] },
+  { key: 'theatre',  label: 'Théâtre',   icon: 'easel',         couleur: '#4F46E5', bg: '#EEF2FF', sousCats: ['Théâtre'] },
+  { key: 'musee',    label: 'Musées',    icon: 'image',         couleur: '#D97706', bg: '#FFFBEB', sousCats: ['Musée'] },
+  { key: 'sport',    label: 'Sport',     icon: 'trophy',        couleur: '#2563EB', bg: '#DBEAFE', sousCats: ['Stade', 'Piscine', 'Salle de sport'] },
+  { key: 'marche',   label: 'Marchés',   icon: 'storefront',    couleur: '#EF4444', bg: '#FEE2E2', sousCats: ['Marché'] },
 ];
-
-const FILTRES_DATE = [
-  { key: 'tous',          label: 'Toutes dates',  icon: 'calendar-outline' },
-  { key: 'ce_soir',       label: 'Ce soir',       icon: 'moon-outline' },
-  { key: 'demain',        label: 'Demain',        icon: 'sunny-outline' },
-  { key: 'ce_weekend',    label: 'Ce week-end',   icon: 'beer-outline' },
-  { key: 'cette_semaine', label: 'Cette semaine', icon: 'calendar-number-outline' },
-  { key: 'date_precise',  label: 'Date précise',  icon: 'search-outline' },
-];
-
-const RAYONS_GEO = [
-  { label: 'Tout', valeur: null },
-  { label: '500 m', valeur: 500 },
-  { label: '1 km', valeur: 1000 },
-  { label: '2 km', valeur: 2000 },
-  { label: '5 km', valeur: 5000 },
-  { label: '10 km', valeur: 10000 },
-];
-
-const SOURCE_CONFIG = {
-  que_faire_paris: { label: 'Agenda Paris', couleur: '#2563EB', bg: '#DBEAFE', icon: 'calendar-outline' },
-  openagenda:      { label: 'Salle',        couleur: '#F97316', bg: '#FFF7ED', icon: 'musical-notes-outline' },
-  ticketmaster:    { label: 'Ticketmaster', couleur: '#EF4444', bg: '#FEE2E2', icon: 'ticket-outline' },
-};
-
-function distanceKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function getPlageDates(filtre, datePrecise) {
-  const maintenant = new Date();
-  const auj = new Date(maintenant); auj.setHours(0, 0, 0, 0);
-  switch (filtre) {
-    case 'ce_soir': { const f = new Date(auj); f.setHours(23, 59, 59, 999); return { debut: maintenant, fin: f }; }
-    case 'demain': { const d = new Date(auj); d.setDate(d.getDate() + 1); const f = new Date(d); f.setHours(23, 59, 59, 999); return { debut: d, fin: f }; }
-    case 'ce_weekend': { const j = maintenant.getDay(); const d = new Date(auj); d.setDate(d.getDate() + (j === 6 ? 0 : 6 - j)); const f = new Date(d); f.setDate(f.getDate() + 1); f.setHours(23, 59, 59, 999); return { debut: d, fin: f }; }
-    case 'cette_semaine': { const f = new Date(auj); f.setDate(f.getDate() + (7 - f.getDay())); f.setHours(23, 59, 59, 999); return { debut: maintenant, fin: f }; }
-    case 'date_precise': { if (!datePrecise) return null; const d = new Date(datePrecise); d.setHours(0, 0, 0, 0); const f = new Date(datePrecise); f.setHours(23, 59, 59, 999); return { debut: d, fin: f }; }
-    default: return null;
-  }
-}
 
 function formatDate(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
   const auj = new Date(); auj.setHours(0, 0, 0, 0);
-  const demain = new Date(auj); demain.setDate(demain.getDate() + 1);
-  if (d >= auj && d < demain) return `Aujourd'hui à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-  if (d >= demain && d < new Date(demain.getTime() + 86400000)) return `Demain à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  const dem = new Date(auj); dem.setDate(dem.getDate() + 1);
+  if (d >= auj && d < dem) return `Auj. ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  if (d >= dem && d < new Date(dem.getTime() + 86400000)) return `Dem. ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
   return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-const CarteEvenementLuma = memo(({ item, onPress, onVoirCarte, CATEGORIES_COULEURS, CAT_ICONES, t, positionUser }) => {
-  const cat = CATEGORIES_COULEURS[item.categorie] || { claire: '#F5F5F5', forte: '#888', texte: '#444' };
-  const distance = positionUser && item.latitude && item.longitude
-    ? Math.round(distanceKm(positionUser.latitude, positionUser.longitude, item.latitude, item.longitude) * 10) / 10
-    : null;
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const CarteEvenementOfficiel = memo(({ item, t, onPress }) => {
+  const cat = CATEGORIES[item.categorie] || { claire: '#DBEAFE', forte: '#2563EB', texte: '#1E40AF', icone: 'calendar-outline' };
   return (
-    <TouchableOpacity style={styles.card} onPress={() => onPress(item)} activeOpacity={0.7}>
-      <View style={styles.cardHaut}>
-        <View style={[styles.cardIcone, { backgroundColor: cat.claire }]}>
+    <TouchableOpacity style={[styles.evCard, { borderLeftColor: cat.forte }]} onPress={() => onPress(item)} activeOpacity={0.7}>
+      <View style={styles.evCardHaut}>
+        {item.image_url ? (
+          <Image source={{ uri: item.image_url }} style={styles.evImage} />
+        ) : (
+          <View style={[styles.evImagePlaceholder, { backgroundColor: cat.claire }]}>
+            <Ionicons name={cat.icone?.replace('-outline', '') || 'calendar'} size={20} color={cat.forte} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: '#111', fontSize: t(14), fontWeight: '500', marginBottom: 3 }} numberOfLines={2}>{item.titre}</Text>
+          {item.lieu && <Text style={{ color: '#888', fontSize: t(12), marginBottom: 3 }} numberOfLines={1}>{item.lieu}</Text>}
+          {item.date_debut && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="calendar-outline" size={11} color={cat.forte} />
+              <Text style={{ color: cat.forte, fontSize: t(11), fontWeight: '500' }}>{formatDate(item.date_debut)}</Text>
+            </View>
+          )}
+          <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+            <View style={[styles.badge, { backgroundColor: cat.claire }]}>
+              <Text style={{ color: cat.texte, fontSize: t(10), fontWeight: '500' }}>{item.categorie}</Text>
+            </View>
+            {item.gratuit && <View style={[styles.badge, { backgroundColor: '#DCFCE7' }]}><Text style={{ color: '#15803D', fontSize: t(10), fontWeight: '500' }}>Gratuit</Text></View>}
+            {item.prix_min && <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}><Text style={{ color: '#92400E', fontSize: t(10) }}>Dès {item.prix_min}€</Text></View>}
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={15} color={cat.forte} />
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+const CarteEvenementCommunautaire = memo(({ item, t, positionUser, onPress, onVoirCarte, CATEGORIES_COULEURS, CAT_ICONES }) => {
+  const cat = CATEGORIES_COULEURS[item.categorie] || { claire: '#F5F5F5', forte: '#888', texte: '#444' };
+  const dist = positionUser && item.latitude && item.longitude
+    ? Math.round(distanceKm(positionUser.latitude, positionUser.longitude, item.latitude, item.longitude) * 10) / 10 : null;
+  return (
+    <TouchableOpacity style={[styles.evCard, { borderLeftColor: '#111' }]} onPress={() => onPress(item)} activeOpacity={0.7}>
+      <View style={styles.evCardHaut}>
+        <View style={[styles.evImagePlaceholder, { backgroundColor: cat.claire }]}>
           <Ionicons name={CAT_ICONES[item.categorie] || 'construct-outline'} size={20} color={cat.forte} />
         </View>
-        <View style={styles.cardContenu}>
-          <Text style={[styles.cardTitre, { fontSize: t(14) }]} numberOfLines={1}>{item.titre}</Text>
-          {item.lieu ? <Text style={[styles.cardInfo, { fontSize: t(12) }]} numberOfLines={1}>{item.lieu}{distance !== null ? ` · ${distance} km` : ''}</Text> : null}
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: '#111', fontSize: t(14), fontWeight: '500', marginBottom: 3 }} numberOfLines={1}>{item.titre}</Text>
+          {item.lieu && <Text style={{ color: '#888', fontSize: t(12), marginBottom: 3 }} numberOfLines={1}>{item.lieu}{dist !== null ? ` · ${dist} km` : ''}</Text>}
           {item.date_evenement && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Ionicons name="time-outline" size={11} color="#2563EB" />
               <Text style={{ color: '#2563EB', fontSize: t(11), fontWeight: '500' }}>{formatDate(item.date_evenement)}</Text>
             </View>
           )}
-          <View style={styles.cardBas}>
-            <View style={[styles.cardBadge, { backgroundColor: '#111' }]}>
+          <View style={{ flexDirection: 'row', gap: 5, marginTop: 4 }}>
+            <View style={[styles.badge, { backgroundColor: '#111' }]}>
               <Ionicons name="people-outline" size={9} color="#fff" />
               <Text style={{ color: '#fff', fontSize: t(9), fontWeight: '500' }}>Communautaire</Text>
             </View>
-            <View style={[styles.cardBadge, { backgroundColor: cat.claire }]}>
-              <Text style={{ color: cat.texte, fontSize: t(10), fontWeight: '500' }}>{item.categorie}</Text>
-            </View>
-            <View style={[styles.cardBadge, { backgroundColor: '#DCFCE7' }]}>
+            <View style={[styles.badge, { backgroundColor: '#DCFCE7' }]}>
               <Ionicons name="people-outline" size={10} color="#15803D" />
-              <Text style={{ color: '#15803D', fontSize: t(10) }}>
-                {item.sans_max ? String(item.participants || 0) : `${item.participants || 0}/${item.max || '?'}`}
-              </Text>
+              <Text style={{ color: '#15803D', fontSize: t(10) }}>{item.sans_max ? String(item.participants || 0) : `${item.participants || 0}/${item.max || '?'}`}</Text>
             </View>
           </View>
         </View>
         <Ionicons name="chevron-forward" size={15} color="#bbb" />
       </View>
       <TouchableOpacity style={styles.voirCarteBtn} onPress={() => onVoirCarte(item)}>
-        <Ionicons name="map-outline" size={15} color="#2563EB" />
-        <Text style={[styles.voirCarteBtnTexte, { fontSize: t(13) }]}>Voir sur la carte</Text>
-        <Ionicons name="arrow-forward" size={13} color="#2563EB" />
+        <Ionicons name="map-outline" size={14} color="#2563EB" />
+        <Text style={{ color: '#2563EB', fontSize: t(12), fontWeight: '500' }}>Voir sur la carte</Text>
+        <Ionicons name="arrow-forward" size={12} color="#2563EB" />
       </TouchableOpacity>
     </TouchableOpacity>
   );
 });
 
-const CarteEvenementOfficiel = memo(({ item, t, positionUser, CATEGORIES_COULEURS, CAT_ICONES, onPress }) => {
-  const cat = CATEGORIES_COULEURS[item.categorie] || { claire: '#DBEAFE', forte: '#2563EB', texte: '#1E40AF' };
-  const src = SOURCE_CONFIG[item.source] || SOURCE_CONFIG.que_faire_paris;
-  const distance = positionUser && item.latitude && item.longitude
-    ? Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10
-    : null;
-
-  return (
-    <TouchableOpacity
-      style={[styles.card, { borderLeftWidth: 3, borderLeftColor: src.couleur }]}
-      onPress={() => onPress(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardHaut}>
-        {item.image_url ? (
-          <Image source={{ uri: item.image_url }} style={styles.cardImage} />
-        ) : (
-          <View style={[styles.cardIcone, { backgroundColor: cat.claire }]}>
-            <Ionicons name={CAT_ICONES[item.categorie] || src.icon} size={20} color={cat.forte} />
-          </View>
-        )}
-        <View style={styles.cardContenu}>
-          <Text style={[styles.cardTitre, { fontSize: t(14) }]} numberOfLines={2}>{item.titre}</Text>
-          {item.lieu && (
-            <Text style={[styles.cardInfo, { fontSize: t(12) }]} numberOfLines={1}>
-              {item.lieu}{distance !== null ? ` · ${distance} km` : ''}
-            </Text>
-          )}
-          {item.date_debut && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-              <Ionicons name="calendar-outline" size={11} color={src.couleur} />
-              <Text style={{ color: src.couleur, fontSize: t(11), fontWeight: '500' }}>
-                {formatDate(item.date_debut)}
-              </Text>
-            </View>
-          )}
-          <View style={styles.cardBas}>
-            <View style={[styles.cardBadge, { backgroundColor: src.bg }]}>
-              <Ionicons name={src.icon} size={9} color={src.couleur} />
-              <Text style={{ color: src.couleur, fontSize: t(9), fontWeight: '500' }}>{src.label}</Text>
-            </View>
-            <View style={[styles.cardBadge, { backgroundColor: cat.claire }]}>
-              <Text style={{ color: cat.texte, fontSize: t(10) }}>{item.categorie}</Text>
-            </View>
-            {item.gratuit && (
-              <View style={[styles.cardBadge, { backgroundColor: '#DCFCE7' }]}>
-                <Text style={{ color: '#15803D', fontSize: t(10), fontWeight: '500' }}>Gratuit</Text>
-              </View>
-            )}
-            {item.prix_min && (
-              <View style={[styles.cardBadge, { backgroundColor: '#FEF3C7' }]}>
-                <Text style={{ color: '#92400E', fontSize: t(10) }}>À partir de {item.prix_min}€</Text>
-              </View>
-            )}
-          </View>
-        </View>
-        <Ionicons name="chevron-forward" size={15} color={src.couleur} />
-      </View>
-      {item.salle && item.source === 'openagenda' && (
-        <View style={[styles.salleTag, { backgroundColor: '#FFF7ED' }]}>
-          <Ionicons name="musical-notes-outline" size={11} color="#F97316" />
-          <Text style={{ color: '#EA580C', fontSize: t(11), fontWeight: '500' }}>{item.salle}</Text>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-});
-
 export default function ExplorerScreen({ navigation }) {
-  const { evenements, erreurReseau, chargerEvenements } = useEvenements();
-  const { theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES, rayonDefaut, setEvenementCible } = useApp();
+  const { evenements } = useEvenements();
+  const { theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES, setEvenementCible } = useApp();
+  const t = (s) => s * facteurTexte;
 
+  const [onglet, setOnglet] = useState('pourToi');
   const [recherche, setRecherche] = useState('');
-  const [filtresCategories, setFiltresCategories] = useState([]);
-  const [filtreType, setFiltreType] = useState('tous');
-  const [filtreDate, setFiltreDate] = useState('tous');
-  const [datePrecise, setDatePrecise] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [rayonGeo, setRayonGeo] = useState(null);
   const [positionUser, setPositionUser] = useState(null);
   const [evenementsOfficiels, setEvenementsOfficiels] = useState([]);
-  const [chargement, setChargement] = useState(false);
-
-  const t = (size) => size * facteurTexte;
+  const [lieux, setLieux] = useState([]);
+  const [stories, setStories] = useState([]);
+  const [storyViewerVisible, setStoryViewerVisible] = useState(false);
+  const [storiesSelectionnees, setStoriesSelectionnees] = useState([]);
+  const [categorieActive, setCategorieActive] = useState(null);
+  const [lieuxFiltres, setLieuxFiltres] = useState([]);
+  const [rechercheLieu, setRechercheLieu] = useState('');
+  const [rechercheFilm, setRechercheFilm] = useState('');
+  const [modeRechercheFilm, setModeRechercheFilm] = useState(false);
+  const [resultatsFilm, setResultatsFilm] = useState([]);
+  const [filtreDate, setFiltreDate] = useState('tous');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePrecise, setDatePrecise] = useState(new Date());
+  const [filtreGratuit, setFiltreGratuit] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -216,459 +148,553 @@ export default function ExplorerScreen({ navigation }) {
       }
     })();
     chargerOfficiels();
+    chargerLieux();
+    chargerStories();
   }, []);
 
   const chargerOfficiels = async () => {
-    setChargement(true);
     try {
       const { data } = await supabase
         .from('evenements_officiels')
         .select('*')
         .eq('actif', true)
-        .gte('date_debut', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString())
+        .gte('date_debut', new Date().toISOString())
         .order('date_debut', { ascending: true })
         .limit(500);
       if (data) setEvenementsOfficiels(data);
     } catch {}
-    setChargement(false);
   };
 
-  const allerDetail = useCallback((evenement) => {
-    navigation.navigate('DetailEvenement', { evenement });
-  }, [navigation]);
+  const chargerLieux = async () => {
+    try {
+      const { data } = await supabase
+        .from('lieux_officiels')
+        .select('*')
+        .not('latitude', 'is', null)
+        .order('nom', { ascending: true })
+        .limit(1000);
+      if (data) setLieux(data);
+    } catch {}
+  };
 
-  const allerDetailOfficiel = useCallback((evenement) => {
-    navigation.navigate('DetailEvenementOfficiel', { evenement });
-  }, [navigation]);
+  // Sans jointure profiles pour éviter le bug RLS
+  const chargerStories = async () => {
+    try {
+      const { data } = await supabase
+        .from('stories')
+        .select('*')
+        .eq('actif', true)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (data) setStories(data);
+    } catch {}
+  };
 
-  const voirSurCarte = useCallback((evenement) => {
-    setEvenementCible(evenement);
-    navigation.navigate('Carte');
-  }, [navigation, setEvenementCible]);
-
-  const toggleCategorie = useCallback((nom) => {
-    setFiltresCategories(prev => prev.includes(nom) ? prev.filter(c => c !== nom) : [...prev, nom]);
+  const rechercherFilm = useCallback(async (titre) => {
+    if (!titre || titre.length < 2) { setResultatsFilm([]); return; }
+    try {
+      const { data } = await supabase
+        .from('seances_cinema')
+        .select('film_titre, cinema_nom, film_affiche, film_note, date_seance')
+        .ilike('film_titre', `%${titre}%`)
+        .gte('date_seance', new Date().toISOString())
+        .order('date_seance', { ascending: true })
+        .limit(100);
+      if (data) {
+        const filmsMap = {};
+        data.forEach(s => {
+          if (!filmsMap[s.film_titre]) {
+            filmsMap[s.film_titre] = {
+              titre: s.film_titre, affiche: s.film_affiche,
+              note: s.film_note, cinemas: new Set(), prochaineSeance: s.date_seance,
+            };
+          }
+          filmsMap[s.film_titre].cinemas.add(s.cinema_nom);
+        });
+        setResultatsFilm(Object.values(filmsMap).map(f => ({ ...f, cinemas: [...f.cinemas] })));
+      }
+    } catch {}
   }, []);
 
-  const selectionnerRayonGeo = (valeur) => {
-    if (valeur !== null && !positionUser) {
-      alert('Active la localisation pour filtrer par distance');
-      return;
-    }
-    setRayonGeo(valeur);
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => rechercherFilm(rechercheFilm), 400);
+    return () => clearTimeout(timer);
+  }, [rechercheFilm]);
 
-  const maintenant = new Date();
-  const plageDate = getPlageDates(filtreDate, datePrecise);
-
-  // Filtre commun géo
-  const matchGeo = (lat, lon) => {
-    if (!rayonGeo || !positionUser || !lat || !lon) return true;
-    return distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(lat), parseFloat(lon)) * 1000 <= rayonGeo;
-  };
-
-  // Filtre événements Luma
-  const evenementsLumaFiltres = evenements.filter(e => {
-    if (filtreType === 'officiel' || filtreType === 'salle') return false;
-    if (filtreType === 'fixe') return e.type === 'fixe' && matchGeo(e.latitude, e.longitude);
-    if (filtreType === 'communautaire') return e.type !== 'fixe' && matchGeo(e.latitude, e.longitude);
-
-    const matchRecherche = !recherche ||
-      e.titre?.toLowerCase().includes(recherche.toLowerCase()) ||
-      e.categorie?.toLowerCase().includes(recherche.toLowerCase()) ||
-      e.lieu?.toLowerCase().includes(recherche.toLowerCase());
-    const matchCat = filtresCategories.length === 0 || filtresCategories.includes(e.categorie);
-    const matchRayon = !rayonDefaut || !positionUser ||
-      distanceKm(positionUser.latitude, positionUser.longitude, e.latitude, e.longitude) * 1000 <= rayonDefaut;
-    const geoOk = matchGeo(e.latitude, e.longitude);
-
-    let matchDate = true;
-    if (plageDate && e.type !== 'fixe') {
-      if (!e.date_evenement) matchDate = false;
-      else { const d = new Date(e.date_evenement); matchDate = d >= plageDate.debut && d <= plageDate.fin; }
-    }
-    return matchRecherche && matchCat && matchRayon && geoOk && matchDate;
-  });
-
-  // Filtre événements officiels
-  const evenementsOfficielsFiltres = filtreType === 'fixe' || filtreType === 'communautaire' ? [] :
-    evenementsOfficiels.filter(e => {
-      if (filtreType === 'officiel' && e.source !== 'que_faire_paris') return false;
-      if (filtreType === 'salle' && e.source !== 'openagenda') return false;
-      const matchRecherche = !recherche ||
-        e.titre?.toLowerCase().includes(recherche.toLowerCase()) ||
-        e.categorie?.toLowerCase().includes(recherche.toLowerCase()) ||
-        e.lieu?.toLowerCase().includes(recherche.toLowerCase()) ||
-        e.salle?.toLowerCase().includes(recherche.toLowerCase());
-      const matchCat = filtresCategories.length === 0 || filtresCategories.includes(e.categorie);
-      const geoOk = matchGeo(e.latitude, e.longitude);
-      let matchDate = true;
-      if (plageDate) {
-        if (!e.date_debut) matchDate = false;
-        else { const d = new Date(e.date_debut); matchDate = d >= plageDate.debut && d <= plageDate.fin; }
-      }
-      return matchRecherche && matchCat && geoOk && matchDate;
-    });
-
-  // Sections
-  const fixesLuma = evenementsLumaFiltres.filter(e => e.type === 'fixe');
-  const aVenirLuma = evenementsLumaFiltres.filter(e =>
-    e.type !== 'fixe' && (!e.date_evenement || new Date(e.date_evenement) >= maintenant)
-  );
-  const passesLuma = evenementsLumaFiltres.filter(e =>
-    e.type !== 'fixe' && e.date_evenement && new Date(e.date_evenement) < maintenant
-  );
-
-  const officielsTries = [...evenementsOfficielsFiltres].sort((a, b) => {
-    if (!a.date_debut) return 1;
-    if (!b.date_debut) return -1;
-    return new Date(a.date_debut) - new Date(b.date_debut);
-  });
-
-  const qfp = officielsTries.filter(e => e.source === 'que_faire_paris');
-  const salles = officielsTries.filter(e => e.source === 'openagenda');
-  const autres = officielsTries.filter(e => e.source !== 'que_faire_paris' && e.source !== 'openagenda');
-
-  const sections = [];
-
-  if ((filtreType === 'tous' || filtreType === 'salle') && salles.length > 0) {
-    sections.push({ title: `Programmation salles · ${salles.length}`, data: salles, type: 'officiel', couleur: '#F97316', bg: '#FFF7ED', icon: 'musical-notes-outline' });
-  }
-  if ((filtreType === 'tous' || filtreType === 'officiel') && qfp.length > 0) {
-    sections.push({ title: `Agenda Paris · ${qfp.length}`, data: qfp, type: 'officiel', couleur: '#2563EB', bg: '#DBEAFE', icon: 'calendar-outline' });
-  }
-  if (autres.length > 0) {
-    sections.push({ title: `Autres · ${autres.length}`, data: autres, type: 'officiel', couleur: '#EF4444', bg: '#FEE2E2', icon: 'ticket-outline' });
-  }
-  if ((filtreType === 'tous' || filtreType === 'communautaire') && aVenirLuma.length > 0) {
-    sections.push({ title: `Communautaires à venir · ${aVenirLuma.length}`, data: aVenirLuma, type: 'communautaire', couleur: '#111', bg: '#F5F5F5', icon: 'people-outline' });
-  }
-  if ((filtreType === 'tous' || filtreType === 'fixe') && filtreDate === 'tous' && fixesLuma.length > 0) {
-    sections.push({ title: `Lieux fixes · ${fixesLuma.length}`, data: fixesLuma, type: 'fixe', couleur: '#22C55E', bg: '#DCFCE7', icon: 'location-outline' });
-  }
-  if ((filtreType === 'tous' || filtreType === 'communautaire') && passesLuma.length > 0) {
-    sections.push({ title: `Passés · ${passesLuma.length}`, data: passesLuma, type: 'passe', couleur: '#888', bg: '#F5F5F5', icon: 'time-outline' });
-  }
-
-  const nbFiltresActifs = filtresCategories.length + (filtreType !== 'tous' ? 1 : 0) + (filtreDate !== 'tous' ? 1 : 0) + (rayonGeo ? 1 : 0);
-  const labelDateActif = filtreDate !== 'tous'
-    ? (filtreDate === 'date_precise'
-        ? datePrecise.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-        : FILTRES_DATE.find(f => f.key === filtreDate)?.label)
-    : null;
-  const totalResultats = sections.reduce((acc, s) => acc + s.data.length, 0);
-
-  const renderItem = useCallback(({ item, section }) => {
-    if (section.type === 'officiel') {
-      return (
-        <CarteEvenementOfficiel
-          item={item}
-          t={t}
-          positionUser={positionUser}
-          CATEGORIES_COULEURS={CATEGORIES_COULEURS}
-          CAT_ICONES={CAT_ICONES}
-          onPress={allerDetailOfficiel}
-        />
+  useEffect(() => {
+    if (!categorieActive) { setLieuxFiltres([]); return; }
+    const config = CATEGORIES_LIEUX.find(c => c.key === categorieActive);
+    if (!config) return;
+    let filtres = lieux.filter(l =>
+      config.sousCats.some(sc => (l.sous_categorie || '').toLowerCase().includes(sc.toLowerCase()))
+    );
+    if (rechercheLieu.trim()) {
+      filtres = filtres.filter(l =>
+        l.nom?.toLowerCase().includes(rechercheLieu.toLowerCase()) ||
+        l.adresse?.toLowerCase().includes(rechercheLieu.toLowerCase())
       );
     }
-    return (
-      <CarteEvenementLuma
-        item={item}
-        onPress={allerDetail}
-        onVoirCarte={voirSurCarte}
-        CATEGORIES_COULEURS={CATEGORIES_COULEURS}
-        CAT_ICONES={CAT_ICONES}
-        t={t}
-        positionUser={positionUser}
-      />
-    );
-  }, [allerDetail, allerDetailOfficiel, voirSurCarte, CATEGORIES_COULEURS, CAT_ICONES, t, positionUser]);
+    setLieuxFiltres(filtres);
+  }, [categorieActive, lieux, rechercheLieu]);
 
-  const renderSectionHeader = useCallback(({ section }) => (
-    <View style={[styles.sectionHeader, { backgroundColor: section.bg }]}>
-      <Ionicons name={section.icon} size={13} color={section.couleur} />
-      <Text style={[styles.sectionHeaderTexte, { color: section.couleur }]}>{section.title}</Text>
-    </View>
-  ), []);
+  const getPlage = () => {
+    const auj = new Date(); auj.setHours(0, 0, 0, 0);
+    if (filtreDate === 'ce_soir') { const f = new Date(auj); f.setHours(23, 59, 59, 999); return { d: new Date(), f }; }
+    if (filtreDate === 'demain') { const d = new Date(auj); d.setDate(d.getDate() + 1); const f = new Date(d); f.setHours(23, 59, 59, 999); return { d, f }; }
+    if (filtreDate === 'ce_weekend') { const j = new Date().getDay(); const d = new Date(auj); d.setDate(d.getDate() + (j === 6 ? 0 : 6 - j)); const f = new Date(d); f.setDate(f.getDate() + 1); f.setHours(23, 59, 59, 999); return { d, f }; }
+    if (filtreDate === 'date_precise') { const d = new Date(datePrecise); d.setHours(0, 0, 0, 0); const f = new Date(datePrecise); f.setHours(23, 59, 59, 999); return { d, f }; }
+    return null;
+  };
+
+  const agendaFiltres = evenementsOfficiels.filter(ev => {
+    const matchR = !recherche || ev.titre?.toLowerCase().includes(recherche.toLowerCase()) || ev.lieu?.toLowerCase().includes(recherche.toLowerCase());
+    const matchG = !filtreGratuit || ev.gratuit;
+    const plage = getPlage();
+    const matchD = !plage || (ev.date_debut && new Date(ev.date_debut) >= plage.d && new Date(ev.date_debut) <= plage.f);
+    return matchR && matchG && matchD;
+  });
+
+  const communautairesFiltres = evenements.filter(ev =>
+    !recherche || ev.titre?.toLowerCase().includes(recherche.toLowerCase()) || ev.lieu?.toLowerCase().includes(recherche.toLowerCase())
+  );
+
+  const voirSurCarte = useCallback((ev) => { setEvenementCible(ev); navigation.navigate('Carte'); }, [navigation, setEvenementCible]);
+  const allerDetailOfficiel = useCallback((ev) => navigation.navigate('DetailEvenementOfficiel', { evenement: ev }), [navigation]);
+  const allerDetail = useCallback((ev) => navigation.navigate('DetailEvenement', { evenement: ev }), [navigation]);
+  const allerDetailLieu = useCallback((lieu) => navigation.navigate('DetailLieu', { lieu }), [navigation]);
+
+  const configActive = CATEGORIES_LIEUX.find(c => c.key === categorieActive);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <Text style={[styles.titre, { color: theme.text, fontSize: t(22) }]}>Explorer</Text>
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-          {chargement && (
-            <View style={[styles.chargementBadge, { backgroundColor: '#DBEAFE' }]}>
-              <Text style={{ color: '#2563EB', fontSize: t(10) }}>Chargement...</Text>
+        <Text style={[styles.titre, { color: theme.text }]}>Explorer</Text>
+        <TouchableOpacity
+          style={styles.creerStoryBtnHeader}
+          onPress={() => navigation.navigate('CreerStory')}
+        >
+          <Ionicons name="camera" size={18} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: t(12), fontWeight: '600' }}>Story</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Onglets */}
+      <View style={[styles.ongletsWrap, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ongletsScroll}>
+          {[
+            { key: 'pourToi',    label: '✨ Pour toi' },
+            { key: 'lieux',      label: '🏛 Lieux' },
+            { key: 'agenda',     label: '📅 Agenda' },
+            { key: 'communaute', label: '👥 Communauté' },
+          ].map(o => (
+            <TouchableOpacity
+              key={o.key}
+              style={[styles.onglet, onglet === o.key && styles.ongletActif]}
+              onPress={() => setOnglet(o.key)}
+            >
+              <Text style={[styles.ongletTexte, { color: onglet === o.key ? '#fff' : theme.text3, fontSize: t(13) }]}>
+                {o.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* ── ONGLET POUR TOI ── */}
+      {onglet === 'pourToi' && (
+        <FlatList
+          data={evenementsOfficiels.slice(0, 30)}
+          keyExtractor={item => `off_${item.id}`}
+          ListHeaderComponent={
+            <>
+              {/* Stories */}
+              {stories.length > 0 ? (
+                <View style={{ borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
+                  <StoriesBar
+                    stories={stories}
+                    onPress={(s) => { setStoriesSelectionnees(s); setStoryViewerVisible(true); }}
+                    onCreer={() => navigation.navigate('CreerStory')}
+                    t={t}
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.creerStoryBanner}
+                  onPress={() => navigation.navigate('CreerStory')}
+                >
+                  <View style={styles.creerStoryBannerIcone}>
+                    <Ionicons name="camera" size={22} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#111', fontSize: t(14), fontWeight: '600' }}>Partage ta story</Text>
+                    <Text style={{ color: '#888', fontSize: t(12) }}>Photo ou vidéo — visible 24h</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#888" />
+                </TouchableOpacity>
+              )}
+
+              {evenements.slice(0, 3).length > 0 && (
+                <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 }}>
+                  <View style={styles.sectionTitre}>
+                    <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>Près de toi 👥</Text>
+                    <TouchableOpacity onPress={() => setOnglet('communaute')}>
+                      <Text style={{ color: '#2563EB', fontSize: t(12) }}>Voir tout</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {evenements.slice(0, 3).map(ev => (
+                    <CarteEvenementCommunautaire
+                      key={ev.id} item={ev} t={t}
+                      positionUser={positionUser}
+                      onPress={allerDetail} onVoirCarte={voirSurCarte}
+                      CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES}
+                    />
+                  ))}
+                </View>
+              )}
+
+              <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
+                <View style={styles.sectionTitre}>
+                  <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>À l'affiche 🎭</Text>
+                  <TouchableOpacity onPress={() => setOnglet('agenda')}>
+                    <Text style={{ color: '#2563EB', fontSize: t(12) }}>Voir tout</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          }
+          renderItem={({ item }) => (
+            <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+              <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} />
             </View>
           )}
-          {rayonDefaut && positionUser && (
-            <View style={[styles.rayonBadge, { backgroundColor: '#DBEAFE' }]}>
-              <Ionicons name="navigate" size={11} color="#2563EB" />
-              <Text style={{ color: '#1E40AF', fontSize: t(11), fontWeight: '500' }}>
-                {rayonDefaut >= 1000 ? `${rayonDefaut / 1000} km` : `${rayonDefaut} m`}
+          contentContainerStyle={{ paddingBottom: 20 }}
+          removeClippedSubviews maxToRenderPerBatch={10} windowSize={10}
+        />
+      )}
+
+      {/* ── ONGLET LIEUX ── */}
+      {onglet === 'lieux' && (
+        <View style={{ flex: 1 }}>
+          {/* Catégories horizontales */}
+          <View style={[styles.catsContainer, { borderBottomColor: theme.border }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catsScroll}>
+              {CATEGORIES_LIEUX.map(cat => (
+                <TouchableOpacity
+                  key={cat.key}
+                  style={[styles.catPill, {
+                    backgroundColor: categorieActive === cat.key ? cat.couleur : theme.card,
+                    borderColor: cat.couleur,
+                  }]}
+                  onPress={() => {
+                    setCategorieActive(categorieActive === cat.key ? null : cat.key);
+                    setRechercheLieu('');
+                    setModeRechercheFilm(false);
+                    setRechercheFilm('');
+                  }}
+                >
+                  <Ionicons name={cat.icon} size={16} color={categorieActive === cat.key ? '#fff' : cat.couleur} />
+                  <Text style={{ color: categorieActive === cat.key ? '#fff' : theme.text, fontSize: t(13), fontWeight: '500' }}>
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Recherche — film ou lieu */}
+          {categorieActive && (
+            <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: modeRechercheFilm && categorieActive === 'cinema' ? '#9F1239' : theme.border }]}>
+              <Ionicons name="search-outline" size={15} color={theme.text3} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text, fontSize: t(13) }]}
+                placeholder={
+                  categorieActive === 'cinema' && modeRechercheFilm
+                    ? 'Cherche un film...'
+                    : `Cherche un ${configActive?.label.toLowerCase() || 'lieu'}...`
+                }
+                placeholderTextColor={theme.text3}
+                value={categorieActive === 'cinema' && modeRechercheFilm ? rechercheFilm : rechercheLieu}
+                onChangeText={categorieActive === 'cinema' && modeRechercheFilm ? setRechercheFilm : setRechercheLieu}
+              />
+              {((categorieActive === 'cinema' && modeRechercheFilm ? rechercheFilm : rechercheLieu).length > 0) && (
+                <TouchableOpacity onPress={() => { setRechercheFilm(''); setRechercheLieu(''); }}>
+                  <Ionicons name="close-circle" size={15} color={theme.text3} />
+                </TouchableOpacity>
+              )}
+              {categorieActive === 'cinema' && (
+                <TouchableOpacity
+                  style={[styles.switchModeBtn, { backgroundColor: modeRechercheFilm ? '#9F1239' : theme.bg }]}
+                  onPress={() => { setModeRechercheFilm(v => !v); setRechercheFilm(''); setRechercheLieu(''); }}
+                >
+                  <Text style={{ color: modeRechercheFilm ? '#fff' : theme.text3, fontSize: t(10), fontWeight: '500' }}>
+                    {modeRechercheFilm ? '🎬 Film' : '📍 Lieu'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* Résultats recherche film */}
+          {modeRechercheFilm && categorieActive === 'cinema' ? (
+            <FlatList
+              data={resultatsFilm}
+              keyExtractor={(item, i) => `film_${i}`}
+              renderItem={({ item }) => (
+                <View style={[styles.filmRechercheCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={{ flexDirection: 'row', gap: 12, marginBottom: 10 }}>
+                    {item.affiche ? (
+                      <Image source={{ uri: item.affiche }} style={styles.filmRechercheAffiche} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.filmRechercheAffiche, { backgroundColor: '#FFF1F2', alignItems: 'center', justifyContent: 'center' }]}>
+                        <Ionicons name="film" size={24} color="#9F1239" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600', marginBottom: 4 }}>
+                        {item.titre}
+                      </Text>
+                      {item.note && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                          <Ionicons name="star" size={12} color="#F59E0B" />
+                          <Text style={{ color: '#888', fontSize: t(12) }}>{Math.round(item.note * 10) / 10}/5</Text>
+                        </View>
+                      )}
+                      <Text style={{ color: '#9F1239', fontSize: t(12), fontWeight: '500' }}>
+                        {item.cinemas.length} cinéma{item.cinemas.length > 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                  </View>
+                  {item.cinemas.map((cinema, i) => {
+                    const lieu = lieux.find(l => l.nom === cinema);
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        style={[styles.filmCinemaLigne, { borderTopColor: theme.border }]}
+                        onPress={() => lieu && allerDetailLieu(lieu)}
+                      >
+                        <Ionicons name="location-outline" size={13} color="#9F1239" />
+                        <Text style={{ color: theme.text, fontSize: t(13), flex: 1 }}>{cinema}</Text>
+                        {lieu && <Ionicons name="chevron-forward" size={14} color="#9F1239" />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.vide}>
+                  <Ionicons name={rechercheFilm.length > 1 ? 'film-outline' : 'search'} size={40} color={theme.text3} />
+                  <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500', marginTop: 10 }}>
+                    {rechercheFilm.length > 1 ? 'Aucun film trouvé' : 'Cherche un film'}
+                  </Text>
+                  <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 4, textAlign: 'center' }}>
+                    {rechercheFilm.length > 1 ? 'Essaie un autre titre' : 'Tape le titre pour voir dans quels cinémas il est projeté'}
+                  </Text>
+                </View>
+              }
+              contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 20 }}
+            />
+          ) : categorieActive ? (
+            <FlatList
+              data={lieuxFiltres}
+              keyExtractor={item => `lieu_${item.id}`}
+              renderItem={({ item }) => {
+                const config = configActive || CATEGORIES_LIEUX[0];
+                return (
+                  <TouchableOpacity
+                    style={[styles.lieuCard, { borderLeftColor: config.couleur }]}
+                    onPress={() => allerDetailLieu(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.lieuIcone, { backgroundColor: config.bg }]}>
+                      <Ionicons name={config.icon} size={20} color={config.couleur} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500', marginBottom: 2 }} numberOfLines={1}>
+                        {item.nom}
+                      </Text>
+                      {item.adresse && (
+                        <Text style={{ color: '#888', fontSize: t(12) }} numberOfLines={1}>{item.adresse}</Text>
+                      )}
+                      {positionUser && item.latitude && (
+                        <Text style={{ color: config.couleur, fontSize: t(11), marginTop: 2 }}>
+                          {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10} km
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={config.couleur} />
+                  </TouchableOpacity>
+                );
+              }}
+              ListHeaderComponent={
+                lieuxFiltres.length > 0 ? (
+                  <View style={[styles.sectionTitre, { paddingHorizontal: 0 }]}>
+                    <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600' }}>
+                      {configActive?.label} · {lieuxFiltres.length}
+                    </Text>
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.vide}>
+                  <Text style={{ color: theme.text3, fontSize: t(14) }}>Aucun lieu trouvé</Text>
+                </View>
+              }
+              contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: 20 }}
+            />
+          ) : (
+            <View style={styles.vide}>
+              <Ionicons name="map-outline" size={48} color={theme.text3} />
+              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600', marginTop: 12 }}>
+                Choisis une catégorie
+              </Text>
+              <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 6, textAlign: 'center', lineHeight: 20 }}>
+                Cinémas, salles de concert, musées, théâtres, marchés...
               </Text>
             </View>
           )}
         </View>
-      </View>
-
-      {/* Erreur réseau */}
-      {erreurReseau && (
-        <TouchableOpacity style={styles.erreurBanner} onPress={chargerEvenements}>
-          <Ionicons name="wifi-outline" size={14} color="#fff" />
-          <Text style={styles.erreurTexte}>Pas de connexion — Appuie pour réessayer</Text>
-        </TouchableOpacity>
       )}
 
-      {/* Recherche */}
-      <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Ionicons name="search-outline" size={15} color={theme.text3} />
-        <TextInput
-          style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
-          placeholder="Rechercher un événement, une salle..."
-          placeholderTextColor={theme.text3}
-          value={recherche}
-          onChangeText={setRecherche}
-        />
-        {recherche.length > 0 && (
-          <TouchableOpacity onPress={() => setRecherche('')}>
-            <Ionicons name="close-circle" size={16} color={theme.text3} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Filtre géographique */}
-      <View style={[styles.filtreSection, { borderBottomColor: theme.border }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtreScroll}>
-          {RAYONS_GEO.map(r => {
-            const actif = rayonGeo === r.valeur;
-            return (
-              <TouchableOpacity
-                key={String(r.valeur)}
-                style={[styles.filtreBtn, {
-                  backgroundColor: actif ? (r.valeur === null ? '#111' : '#DBEAFE') : theme.card,
-                  borderColor: actif ? (r.valeur === null ? '#111' : '#2563EB') : theme.border,
-                  borderWidth: actif ? 1.5 : 0.5,
-                }]}
-                onPress={() => selectionnerRayonGeo(r.valeur)}
-              >
-                <Ionicons
-                  name={r.valeur === null ? 'globe-outline' : 'navigate-outline'}
-                  size={13}
-                  color={actif ? (r.valeur === null ? '#fff' : '#2563EB') : theme.text3}
-                />
-                <Text style={[styles.filtreBtnTexte, {
-                  color: actif ? (r.valeur === null ? '#fff' : '#2563EB') : theme.text3,
-                  fontWeight: actif ? '500' : '400',
-                  fontSize: t(12),
-                }]}>
-                  {r.label}
-                </Text>
+      {/* ── ONGLET AGENDA ── */}
+      {onglet === 'agenda' && (
+        <>
+          <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Ionicons name="search-outline" size={15} color={theme.text3} />
+            <TextInput
+              style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
+              placeholder="Rechercher un événement..."
+              placeholderTextColor={theme.text3}
+              value={recherche}
+              onChangeText={setRecherche}
+            />
+            {recherche.length > 0 && (
+              <TouchableOpacity onPress={() => setRecherche('')}>
+                <Ionicons name="close-circle" size={16} color={theme.text3} />
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Filtres date */}
-      <View style={[styles.filtreSection, { borderBottomColor: theme.border }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtreScroll}>
-          {FILTRES_DATE.map(fd => {
-            const actif = filtreDate === fd.key;
-            return (
-              <TouchableOpacity
-                key={fd.key}
-                style={[styles.filtreBtn, {
-                  backgroundColor: actif ? '#111' : theme.card,
-                  borderColor: actif ? '#111' : theme.border,
-                  borderWidth: actif ? 1.5 : 0.5,
-                }]}
-                onPress={() => { setFiltreDate(fd.key); if (fd.key === 'date_precise') setShowDatePicker(true); }}
-              >
-                <Ionicons name={fd.icon} size={13} color={actif ? '#fff' : theme.text3} />
-                <Text style={[styles.filtreBtnTexte, {
-                  color: actif ? '#fff' : theme.text3,
-                  fontWeight: actif ? '500' : '400',
-                  fontSize: t(12),
-                }]}>
-                  {fd.key === 'date_precise' && filtreDate === 'date_precise'
-                    ? datePrecise.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-                    : fd.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-        {showDatePicker && (
-          <DateTimePicker value={datePrecise} mode="date" minimumDate={new Date()}
-            onChange={(e, d) => { setShowDatePicker(false); if (d) { setDatePrecise(d); setFiltreDate('date_precise'); } }} />
-        )}
-      </View>
-
-      {/* Filtres type */}
-      <View style={[styles.filtreSection, { borderBottomColor: theme.border }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtreScroll}>
-          {FILTRES_TYPE.map(ft => {
-            const actif = filtreType === ft.key;
-            const couleurs = {
-              tous:          { bg: '#F5F5F5', c: '#555' },
-              communautaire: { bg: '#111',    c: '#fff' },
-              officiel:      { bg: '#DBEAFE', c: '#2563EB' },
-              salle:         { bg: '#FFF7ED', c: '#F97316' },
-              fixe:          { bg: '#DCFCE7', c: '#22C55E' },
-            };
-            const c = couleurs[ft.key];
-            return (
-              <TouchableOpacity
-                key={ft.key}
-                style={[styles.filtreBtn, {
-                  backgroundColor: actif ? c.bg : theme.card,
-                  borderColor: actif ? c.c : theme.border,
-                  borderWidth: actif ? 1.5 : 0.5,
-                }]}
-                onPress={() => setFiltreType(ft.key)}
-              >
-                <Ionicons name={ft.icon} size={13} color={actif ? c.c : theme.text3} />
-                <Text style={[styles.filtreBtnTexte, {
-                  color: actif ? c.c : theme.text3,
-                  fontWeight: actif ? '500' : '400',
-                  fontSize: t(13),
-                }]}>
-                  {ft.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Filtres catégories */}
-      <View style={styles.filtresWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtresScroll}>
-          <TouchableOpacity
-            style={[styles.chip, {
-              backgroundColor: filtresCategories.length === 0 ? '#111' : theme.card,
-              borderColor: filtresCategories.length === 0 ? '#111' : theme.border,
-            }]}
-            onPress={() => setFiltresCategories([])}
-          >
-            <Text style={[styles.chipTexte, {
-              color: filtresCategories.length === 0 ? '#fff' : theme.text3,
-              fontSize: t(12),
-              fontWeight: filtresCategories.length === 0 ? '500' : '400',
-            }]}>
-              Toutes
-            </Text>
-          </TouchableOpacity>
-          {Object.entries(CATEGORIES_COULEURS).map(([nom, c]) => {
-            const actif = filtresCategories.includes(nom);
-            return (
-              <TouchableOpacity
-                key={nom}
-                style={[styles.chip, {
-                  backgroundColor: actif ? c.claire : theme.card,
-                  borderColor: actif ? c.forte : theme.border,
-                  borderWidth: actif ? 1.5 : 0.5,
-                }]}
-                onPress={() => toggleCategorie(nom)}
-              >
-                <Ionicons name={CAT_ICONES[nom] || 'construct-outline'} size={12} color={actif ? c.forte : theme.text3} />
-                <Text style={[styles.chipTexte, {
-                  color: actif ? c.texte : theme.text3,
-                  fontSize: t(12),
-                  fontWeight: actif ? '500' : '400',
-                }]}>
-                  {nom}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Compteur résultats */}
-      {(nbFiltresActifs > 0 || recherche) && (
-        <View style={[styles.compteurWrap, { backgroundColor: theme.bg }]}>
-          <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-            <Text style={{ color: theme.text3, fontSize: t(12) }}>
-              {totalResultats} résultat{totalResultats !== 1 ? 's' : ''}
-            </Text>
-            {labelDateActif && (
-              <View style={[styles.resumeBadge, { backgroundColor: '#111' }]}>
-                <Ionicons name="calendar-outline" size={10} color="#fff" />
-                <Text style={{ color: '#fff', fontSize: t(10), fontWeight: '500' }}>{labelDateActif}</Text>
-              </View>
-            )}
-            {rayonGeo && (
-              <View style={[styles.resumeBadge, { backgroundColor: '#DBEAFE' }]}>
-                <Ionicons name="navigate-outline" size={10} color="#2563EB" />
-                <Text style={{ color: '#1E40AF', fontSize: t(10), fontWeight: '500' }}>
-                  {rayonGeo < 1000 ? `${rayonGeo} m` : `${rayonGeo / 1000} km`}
-                </Text>
-              </View>
-            )}
-            {filtreType !== 'tous' && (
-              <View style={[styles.resumeBadge, { backgroundColor: '#F5F5F5' }]}>
-                <Text style={{ color: '#555', fontSize: t(10), fontWeight: '500' }}>
-                  {FILTRES_TYPE.find(f => f.key === filtreType)?.label}
-                </Text>
-              </View>
             )}
           </View>
-          <TouchableOpacity onPress={() => {
-            setFiltreType('tous');
-            setFiltresCategories([]);
-            setFiltreDate('tous');
-            setRayonGeo(null);
-            setRecherche('');
-          }}>
-            <Text style={{ color: '#2563EB', fontSize: t(12) }}>Effacer</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
-      {/* Résultats */}
-      {sections.length === 0 ? (
-        <View style={styles.vide}>
-          <View style={[styles.videIcone, { backgroundColor: theme.card }]}>
-            <Ionicons name="search" size={28} color={theme.text3} />
-          </View>
-          <Text style={[styles.videTexte, { color: theme.text, fontSize: t(16) }]}>
-            Aucun événement trouvé
-          </Text>
-          <Text style={[styles.videDesc, { color: theme.text3, fontSize: t(13) }]}>
-            {rayonGeo ? `Aucun événement dans ${rayonGeo < 1000 ? `${rayonGeo} m` : `${rayonGeo / 1000} km`} autour de toi.`
-              : filtreDate !== 'tous' ? `Aucun événement ${labelDateActif?.toLowerCase() || ''}.`
-              : 'Essaie d\'autres filtres'}
-          </Text>
-          {(filtreType !== 'tous' || filtresCategories.length > 0 || filtreDate !== 'tous' || rayonGeo) && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 48 }} contentContainerStyle={styles.filtresScroll}>
+            {[
+              { key: 'tous', label: 'Toutes dates' },
+              { key: 'ce_soir', label: 'Ce soir' },
+              { key: 'demain', label: 'Demain' },
+              { key: 'ce_weekend', label: 'Week-end' },
+              { key: 'date_precise', label: filtreDate === 'date_precise' ? datePrecise.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Date précise' },
+            ].map(f => (
+              <TouchableOpacity key={f.key}
+                style={[styles.filtrePill, filtreDate === f.key && styles.filtrePillActif]}
+                onPress={() => { setFiltreDate(f.key); if (f.key === 'date_precise') setShowDatePicker(true); }}
+              >
+                <Text style={[styles.filtrePillTexte, { fontSize: t(12), color: filtreDate === f.key ? '#fff' : theme.text3 }]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
             <TouchableOpacity
-              style={[styles.videBtn, { backgroundColor: '#111' }]}
-              onPress={() => { setFiltreType('tous'); setFiltresCategories([]); setFiltreDate('tous'); setRayonGeo(null); }}
+              style={[styles.filtrePill, filtreGratuit && { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}
+              onPress={() => setFiltreGratuit(v => !v)}
             >
-              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Effacer les filtres</Text>
+              <Text style={[styles.filtrePillTexte, { fontSize: t(12), color: filtreGratuit ? '#15803D' : theme.text3 }]}>Gratuit</Text>
             </TouchableOpacity>
+          </ScrollView>
+
+          {showDatePicker && (
+            <DateTimePicker value={datePrecise} mode="date" minimumDate={new Date()}
+              onChange={(e, d) => { setShowDatePicker(false); if (d) { setDatePrecise(d); setFiltreDate('date_precise'); } }} />
           )}
-        </View>
-      ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => `${item.source || 'luma'}_${item.id}`}
-          renderItem={renderItem}
-          renderSectionHeader={renderSectionHeader}
-          contentContainerStyle={styles.liste}
-          removeClippedSubviews
-          maxToRenderPerBatch={10}
-          windowSize={10}
-          initialNumToRender={8}
-          stickySectionHeadersEnabled={false}
-        />
+
+          <FlatList
+            data={agendaFiltres}
+            keyExtractor={item => `agenda_${item.id}`}
+            renderItem={({ item }) => (
+              <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+                <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} />
+              </View>
+            )}
+            ListEmptyComponent={
+              <View style={styles.vide}>
+                <Ionicons name="calendar-outline" size={40} color={theme.text3} />
+                <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>Aucun événement</Text>
+                <TouchableOpacity
+                  style={[styles.effacerBtn, { marginTop: 12 }]}
+                  onPress={() => { setFiltreDate('tous'); setFiltreGratuit(false); setRecherche(''); }}
+                >
+                  <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Effacer les filtres</Text>
+                </TouchableOpacity>
+              </View>
+            }
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: 20 }}
+            removeClippedSubviews maxToRenderPerBatch={10} windowSize={10}
+          />
+        </>
+      )}
+
+      {/* ── ONGLET COMMUNAUTÉ ── */}
+      {onglet === 'communaute' && (
+        <>
+          <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Ionicons name="search-outline" size={15} color={theme.text3} />
+            <TextInput
+              style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
+              placeholder="Rechercher un événement..."
+              placeholderTextColor={theme.text3}
+              value={recherche}
+              onChangeText={setRecherche}
+            />
+            {recherche.length > 0 && (
+              <TouchableOpacity onPress={() => setRecherche('')}>
+                <Ionicons name="close-circle" size={16} color={theme.text3} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <FlatList
+            data={communautairesFiltres}
+            keyExtractor={item => `comm_${item.id}`}
+            renderItem={({ item }) => (
+              <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+                <CarteEvenementCommunautaire
+                  item={item} t={t} positionUser={positionUser}
+                  onPress={allerDetail} onVoirCarte={voirSurCarte}
+                  CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES}
+                />
+              </View>
+            )}
+            ListEmptyComponent={
+              <View style={styles.vide}>
+                <Ionicons name="people-outline" size={40} color={theme.text3} />
+                <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>
+                  Aucun événement communautaire
+                </Text>
+                <TouchableOpacity
+                  style={[styles.effacerBtn, { marginTop: 12 }]}
+                  onPress={() => navigation.navigate('AjoutEvenement')}
+                >
+                  <Ionicons name="add" size={16} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Créer un événement</Text>
+                </TouchableOpacity>
+              </View>
+            }
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: 20 }}
+            removeClippedSubviews maxToRenderPerBatch={10}
+          />
+        </>
+      )}
+
+      {/* Story Viewer */}
+      {storyViewerVisible && storiesSelectionnees.length > 0 && (
+        <Modal visible animationType="fade" statusBarTranslucent>
+          <StoryViewer
+            stories={storiesSelectionnees}
+            onFermer={() => setStoryViewerVisible(false)}
+            onVoirCarte={() => { setStoryViewerVisible(false); navigation.navigate('Carte'); }}
+            navigation={navigation}
+          />
+        </Modal>
       )}
     </View>
   );
@@ -676,42 +702,38 @@ export default function ExplorerScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { padding: 16, paddingTop: 56, borderBottomWidth: 0.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  titre: { fontWeight: '500' },
-  chargementBadge: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
-  rayonBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  erreurBanner: { backgroundColor: '#EF4444', flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, paddingHorizontal: 16 },
-  erreurTexte: { color: '#fff', fontSize: 12, flex: 1 },
-  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 12, marginBottom: 0, borderRadius: 12, padding: 12, borderWidth: 0.5 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, paddingTop: 56, borderBottomWidth: 0.5 },
+  titre: { fontSize: 22, fontWeight: '600' },
+  creerStoryBtnHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#111', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  ongletsWrap: { borderBottomWidth: 0.5 },
+  ongletsScroll: { paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
+  onglet: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB' },
+  ongletActif: { backgroundColor: '#111', borderColor: '#111' },
+  ongletTexte: { fontWeight: '500' },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 12, marginBottom: 6, borderRadius: 12, padding: 10, borderWidth: 0.5 },
   searchInput: { flex: 1 },
-  filtreSection: { borderBottomWidth: 0.5, paddingVertical: 8 },
-  filtreScroll: { gap: 8, paddingHorizontal: 12 },
-  filtreBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
-  filtreBtnTexte: {},
-  filtresWrap: { paddingVertical: 8 },
-  filtresScroll: { gap: 7, paddingHorizontal: 12 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 6, borderWidth: 0.5 },
-  chipTexte: {},
-  compteurWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 6 },
-  resumeBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 3 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginHorizontal: 12, marginTop: 8, marginBottom: 6, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  sectionHeaderTexte: { fontWeight: '700', fontSize: 12, letterSpacing: 0.04 },
-  liste: { paddingHorizontal: 12, paddingBottom: 20, gap: 8 },
-  card: { borderRadius: 14, borderWidth: 0.5, borderColor: '#E8E8E8', backgroundColor: '#fff', overflow: 'hidden' },
-  cardHaut: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  cardIcone: { width: 46, height: 46, borderRadius: 13, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  cardImage: { width: 46, height: 46, borderRadius: 13, flexShrink: 0 },
-  cardContenu: { flex: 1 },
-  cardTitre: { fontWeight: '500', color: '#111', marginBottom: 3 },
-  cardInfo: { color: '#888', marginBottom: 4 },
-  cardBas: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
-  cardBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 3 },
-  salleTag: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: '#FED7AA' },
-  voirCarteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: '#EFF6FF', paddingVertical: 11, borderTopWidth: 0.5, borderTopColor: '#BFDBFE' },
-  voirCarteBtnTexte: { color: '#2563EB', fontWeight: '500' },
-  vide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
-  videIcone: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  videTexte: { fontWeight: '500' },
-  videDesc: { textAlign: 'center', lineHeight: 20 },
-  videBtn: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 4 },
+  switchModeBtn: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 },
+  sectionTitre: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  creerStoryBanner: { flexDirection: 'row', alignItems: 'center', gap: 14, margin: 16, backgroundColor: '#F9FAFB', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E5E7EB' },
+  creerStoryBannerIcone: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
+  catsContainer: { borderBottomWidth: 0.5, paddingVertical: 8 },
+  catsScroll: { gap: 8, paddingHorizontal: 16 },
+  catPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
+  lieuCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden' },
+  lieuIcone: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  evCard: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden', marginBottom: 0 },
+  evCardHaut: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  evImage: { width: 52, height: 52, borderRadius: 10, flexShrink: 0 },
+  evImagePlaceholder: { width: 52, height: 52, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 3 },
+  voirCarteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#EFF6FF', paddingVertical: 10, borderTopWidth: 0.5, borderTopColor: '#BFDBFE' },
+  filtresScroll: { gap: 8, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' },
+  filtrePill: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: '#F5F5F5', borderWidth: 1, borderColor: '#E5E7EB' },
+  filtrePillActif: { backgroundColor: '#111', borderColor: '#111' },
+  filtrePillTexte: { fontWeight: '500' },
+  filmRechercheCard: { borderRadius: 16, borderWidth: 0.5, padding: 14 },
+  filmRechercheAffiche: { width: 60, height: 90, borderRadius: 10, flexShrink: 0 },
+  filmCinemaLigne: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, paddingBottom: 2, borderTopWidth: 0.5 },
+  vide: { alignItems: 'center', justifyContent: 'center', padding: 40, gap: 8, flex: 1, minHeight: 300 },
+  effacerBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#111', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10 },
 });

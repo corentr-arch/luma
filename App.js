@@ -26,6 +26,7 @@ import ConversationScreen from './screens/ConversationScreen';
 import CompteScreen from './screens/CompteScreen';
 import ProfilPublicScreen from './screens/ProfilPublicScreen';
 import CGUScreen from './screens/CGUScreen';
+import CreerStoryScreen from './screens/CreerStoryScreen';
 
 LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
@@ -54,40 +55,23 @@ function Onglets() {
           if (route.name === 'Messages' && totalNonLus > 0) {
             return (
               <View>
-                <Ionicons
-                  name={icons[route.name]}
-                  size={size}
-                  color={focused ? theme.actif : theme.inactif}
-                />
+                <Ionicons name={icons[route.name]} size={size} color={focused ? theme.actif : theme.inactif} />
                 <View style={{
                   position: 'absolute', top: -4, right: -8,
                   backgroundColor: '#EF4444', borderRadius: 8,
                   minWidth: 16, height: 16,
-                  alignItems: 'center', justifyContent: 'center',
-                  paddingHorizontal: 3,
+                  alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
                 }}>
-                  <Text style={{ color: '#fff', fontSize: t(10), fontWeight: '500' }}>
-                    {totalNonLus}
-                  </Text>
+                  <Text style={{ color: '#fff', fontSize: t(10), fontWeight: '500' }}>{totalNonLus}</Text>
                 </View>
               </View>
             );
           }
-          return (
-            <Ionicons
-              name={icons[route.name]}
-              size={size}
-              color={focused ? theme.actif : theme.inactif}
-            />
-          );
+          return <Ionicons name={icons[route.name]} size={size} color={focused ? theme.actif : theme.inactif} />;
         },
         tabBarActiveTintColor: theme.actif,
         tabBarInactiveTintColor: theme.inactif,
-        tabBarStyle: {
-          backgroundColor: theme.tabBar,
-          borderTopColor: theme.border,
-          borderTopWidth: 0.5,
-        },
+        tabBarStyle: { backgroundColor: theme.tabBar, borderTopColor: theme.border, borderTopWidth: 0.5 },
         tabBarLabelStyle: { fontSize: t(10), fontWeight: '500' },
         headerShown: false,
       })}
@@ -107,21 +91,24 @@ function Navigation() {
   const { theme } = useApp();
   const navigationRef = useRef(null);
 
+  const chargerProfil = async (userId) => {
+    if (!userId) return;
+    const { data: profil } = await supabase
+      .from('profiles')
+      .select('onboarding_vu')
+      .eq('id', userId)
+      .single();
+    setOnboardingVu(profil?.onboarding_vu ?? false);
+  };
+
   useEffect(() => {
     const init = async () => {
       const { data: { session: sess } } = await supabase.auth.getSession();
       setSession(sess);
-
       if (sess?.user) {
         enregistrerNotifications();
-        const { data: profil } = await supabase
-          .from('profiles')
-          .select('onboarding_vu')
-          .eq('id', sess.user.id)
-          .single();
-        setOnboardingVu(profil?.onboarding_vu ?? false);
+        await chargerProfil(sess.user.id);
       }
-
       setChargement(false);
     };
     init();
@@ -130,12 +117,7 @@ function Navigation() {
       setSession(sess);
       if (sess?.user) {
         enregistrerNotifications();
-        const { data: profil } = await supabase
-          .from('profiles')
-          .select('onboarding_vu')
-          .eq('id', sess.user.id)
-          .single();
-        setOnboardingVu(profil?.onboarding_vu ?? false);
+        await chargerProfil(sess.user.id);
       }
     });
 
@@ -155,23 +137,31 @@ function Navigation() {
     };
   }, []);
 
+  // Polling — détecte quand onboarding_vu passe à true
+  useEffect(() => {
+    if (onboardingVu || !session?.user) return;
+    const interval = setInterval(async () => {
+      const { data: profil } = await supabase
+        .from('profiles')
+        .select('onboarding_vu')
+        .eq('id', session.user.id)
+        .single();
+      if (profil?.onboarding_vu) {
+        setOnboardingVu(true);
+        clearInterval(interval);
+      }
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [onboardingVu, session]);
+
   if (chargement) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
-        <View style={{
-          width: 52, height: 52, borderRadius: 14,
-          backgroundColor: '#2563EB',
-          alignItems: 'center', justifyContent: 'center',
-          marginBottom: 16,
-        }}>
+        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
           <Ionicons name="location" size={26} color="#fff" />
         </View>
-        <Text style={{ color: '#fff', fontSize: 26, fontWeight: '600', letterSpacing: -0.5, marginBottom: 8 }}>
-          Luma
-        </Text>
-        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginBottom: 32 }}>
-          rejoins ton quartier
-        </Text>
+        <Text style={{ color: '#fff', fontSize: 26, fontWeight: '600', letterSpacing: -0.5, marginBottom: 8 }}>Luma</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginBottom: 32 }}>rejoins ton quartier</Text>
         <ActivityIndicator color="#2563EB" size="small" />
       </View>
     );
@@ -196,6 +186,11 @@ function Navigation() {
             <Stack.Screen name="Conversation" component={ConversationScreen} />
             <Stack.Screen name="ProfilPublic" component={ProfilPublicScreen} />
             <Stack.Screen name="CGU" component={CGUScreen} />
+            <Stack.Screen
+              name="CreerStory"
+              component={CreerStoryScreen}
+              options={{ presentation: 'modal' }}
+            />
           </>
         )}
       </Stack.Navigator>

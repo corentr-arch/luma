@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Dimensions, ScrollView, TextInput,
+  Dimensions, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef } from 'react';
@@ -10,17 +10,17 @@ import { supabase } from '../supabase';
 const { width } = Dimensions.get('window');
 
 const INTERETS = [
-  { nom: 'Musique',            icone: 'musical-notes-outline', couleur: '#A855F7' },
-  { nom: 'Cinéma',             icone: 'film-outline',          couleur: '#9F1239' },
-  { nom: 'Théâtre',            icone: 'easel-outline',         couleur: '#4F46E5' },
-  { nom: 'Sport',              icone: 'football-outline',      couleur: '#2563EB' },
-  { nom: 'Art',                icone: 'color-palette-outline', couleur: '#EC4899' },
-  { nom: 'Nature & Bien-être', icone: 'leaf-outline',          couleur: '#10B981' },
-  { nom: 'Apéro',              icone: 'wine-outline',          couleur: '#F59E0B' },
-  { nom: 'Famille',            icone: 'people-outline',        couleur: '#F97316' },
-  { nom: 'Marché',             icone: 'storefront-outline',    couleur: '#EF4444' },
-  { nom: 'Cours',              icone: 'school-outline',        couleur: '#6366F1' },
-  { nom: 'Entraide',           icone: 'heart-outline',         couleur: '#22C55E' },
+  { nom: 'Musique',            icone: 'musical-notes-outline',   couleur: '#A855F7' },
+  { nom: 'Cinéma',             icone: 'film-outline',            couleur: '#9F1239' },
+  { nom: 'Théâtre',            icone: 'easel-outline',           couleur: '#4F46E5' },
+  { nom: 'Sport',              icone: 'football-outline',        couleur: '#2563EB' },
+  { nom: 'Art',                icone: 'color-palette-outline',   couleur: '#EC4899' },
+  { nom: 'Nature & Bien-être', icone: 'leaf-outline',            couleur: '#10B981' },
+  { nom: 'Apéro',              icone: 'wine-outline',            couleur: '#F59E0B' },
+  { nom: 'Famille',            icone: 'people-outline',          couleur: '#F97316' },
+  { nom: 'Marché',             icone: 'storefront-outline',      couleur: '#EF4444' },
+  { nom: 'Cours',              icone: 'school-outline',          couleur: '#6366F1' },
+  { nom: 'Entraide',           icone: 'heart-outline',           couleur: '#22C55E' },
   { nom: 'Gaming',             icone: 'game-controller-outline', couleur: '#7C3AED' },
 ];
 
@@ -60,18 +60,24 @@ export default function OnboardingScreen() {
     allerSlide(3);
   };
 
+  // Met à jour onboarding_vu dans Supabase
+  // Le polling dans App.js détectera le changement automatiquement
   const terminer = async () => {
+    if (chargement) return;
     setChargement(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         await supabase.from('profiles').update({
           onboarding_vu: true,
-          interets: interetsChoisis.length > 0 ? interetsChoisis : null,
+          centres_interet: interetsChoisis.length > 0 ? interetsChoisis : null,
         }).eq('id', user.id);
       }
-    } catch {}
+    } catch (e) {
+      console.error('Erreur onboarding:', e);
+    }
     setChargement(false);
+    // App.js détecte automatiquement via polling toutes les 1.5s
   };
 
   return (
@@ -123,12 +129,14 @@ export default function OnboardingScreen() {
           </TouchableOpacity>
           <View style={styles.slideInner}>
             <Text style={styles.titreCentré}>Ce que tu peux faire</Text>
-            <Text style={styles.sousTitreCentré}>Une seule app pour tout ce qui se passe près de chez toi</Text>
+            <Text style={styles.sousTitreCentré}>
+              Une seule app pour tout ce qui se passe près de chez toi
+            </Text>
             <View style={styles.cartesFeatures}>
               {[
-                { icone: 'map-outline', couleur: '#A855F7', titre: 'Explore', desc: 'Concerts, cinémas, théâtres, marchés et salles de sport autour de toi' },
-                { icone: 'people-outline', couleur: '#22C55E', titre: 'Rejoins', desc: 'Des événements créés par tes voisins — apéros, sport, balades, entraide' },
-                { icone: 'add-circle-outline', couleur: '#F59E0B', titre: 'Crée', desc: 'Organise ton propre événement en quelques secondes, en lieu public' },
+                { icone: 'map-outline',       couleur: '#A855F7', titre: 'Explore',  desc: 'Concerts, cinémas, théâtres, marchés et salles de sport autour de toi' },
+                { icone: 'people-outline',     couleur: '#22C55E', titre: 'Rejoins',  desc: 'Des événements créés par tes voisins — apéros, sport, balades, entraide' },
+                { icone: 'add-circle-outline', couleur: '#F59E0B', titre: 'Crée',     desc: 'Organise ton propre événement en quelques secondes, en lieu public' },
               ].map(f => (
                 <View key={f.titre} style={styles.carteFeature}>
                   <View style={[styles.featureIcone, { backgroundColor: f.couleur }]}>
@@ -278,7 +286,7 @@ export default function OnboardingScreen() {
             >
               <Ionicons name="rocket-outline" size={18} color="#fff" />
               <Text style={styles.btnPrincipalTexte}>
-                {chargement ? 'Chargement...' : interetsChoisis.length > 0 ? 'C\'est parti !' : 'Passer cette étape'}
+                {chargement ? 'Enregistrement...' : interetsChoisis.length > 0 ? "C'est parti !" : 'Passer cette étape'}
               </Text>
             </TouchableOpacity>
           )}
@@ -294,7 +302,6 @@ const styles = StyleSheet.create({
   slideInner: { flex: 1, paddingHorizontal: 24, paddingBottom: 16 },
   passerBtn: { alignSelf: 'flex-end', paddingHorizontal: 24, paddingVertical: 8 },
   passerTexte: { color: '#888', fontSize: 14 },
-
   carteIllustration: { alignItems: 'center', marginBottom: 32, marginTop: 8 },
   carteFond: {
     width: 280, height: 200, borderRadius: 20,
@@ -318,13 +325,11 @@ const styles = StyleSheet.create({
   },
   logoIcone: { width: 16, height: 16, borderRadius: 5, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
   logoTexte: { fontSize: 11, fontWeight: '500', color: '#111' },
-
   texteBloc: { gap: 12 },
   titrePrincipal: { fontSize: 34, fontWeight: '700', letterSpacing: -1, color: '#111', lineHeight: 40 },
   sousTitrePrincipal: { fontSize: 15, color: '#666', lineHeight: 23 },
   titreCentré: { fontSize: 24, fontWeight: '600', letterSpacing: -0.5, color: '#111', textAlign: 'center', marginBottom: 8 },
   sousTitreCentré: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 21, marginBottom: 8 },
-
   cartesFeatures: { gap: 10, marginTop: 16 },
   carteFeature: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
@@ -334,7 +339,6 @@ const styles = StyleSheet.create({
   featureIcone: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   featureTitre: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 2 },
   featureDesc: { fontSize: 12, color: '#777', lineHeight: 17, flex: 1 },
-
   localisationIcone: { alignItems: 'center', justifyContent: 'center', height: 160 },
   localisationAnneaux: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   anneau: { position: 'absolute', borderRadius: 999, borderWidth: 2, borderColor: '#2563EB' },
@@ -350,8 +354,6 @@ const styles = StyleSheet.create({
   btnLocalisationTexte: { color: '#fff', fontSize: 15, fontWeight: '600' },
   btnPlusTard: { alignItems: 'center', padding: 8 },
   btnPlusTardTexte: { color: '#888', fontSize: 14 },
-
-  // Grille intérêts — 2 colonnes, cartes carrées
   interetsGrille: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   interetItem: {
     width: '47%', borderRadius: 16, padding: 14,
@@ -372,7 +374,6 @@ const styles = StyleSheet.create({
     textAlign: 'center', color: '#888', fontSize: 13,
     marginTop: 12, fontStyle: 'italic',
   },
-
   bas: {
     paddingHorizontal: 24, paddingBottom: 48, paddingTop: 12,
     backgroundColor: '#fff', gap: 14,

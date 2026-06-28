@@ -7,18 +7,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { supabase } from '../supabase';
 
-const CATEGORIES = [
-  { nom: 'Sport',              icon: 'football-outline',      bg: '#DBEAFE', c: '#1E40AF' },
-  { nom: 'Musique',            icon: 'musical-notes-outline', bg: '#F3E8FF', c: '#7E22CE' },
-  { nom: 'Apéro',              icon: 'wine-outline',          bg: '#FEF3C7', c: '#92400E' },
-  { nom: 'Entraide',           icon: 'heart-outline',         bg: '#DCFCE7', c: '#15803D' },
-  { nom: 'Art',                icon: 'color-palette-outline', bg: '#FCE7F3', c: '#9D174D' },
-  { nom: 'Marché',             icon: 'storefront-outline',    bg: '#FEE2E2', c: '#991B1B' },
-  { nom: 'Nature & Bien-être', icon: 'leaf-outline',          bg: '#D1FAE5', c: '#065F46' },
-  { nom: 'Famille',            icon: 'people-outline',        bg: '#FFEDD5', c: '#9A3412' },
-  { nom: 'Cours',              icon: 'school-outline',        bg: '#EEF2FF', c: '#3730A3' },
-];
-
 export default function ConnexionScreen() {
   const [mode, setMode] = useState('connexion');
   const [email, setEmail] = useState('');
@@ -35,8 +23,6 @@ export default function ConnexionScreen() {
     if (message.includes('User already registered')) return 'Un compte existe déjà avec cet email.';
     if (message.includes('Password should be at least')) return 'Le mot de passe doit faire au moins 6 caractères.';
     if (message.includes('Unable to validate email address')) return 'Adresse email invalide.';
-    if (message.includes('Email logins are disabled')) return 'La connexion par email est temporairement désactivée.';
-    if (message.includes('Signups not allowed')) return 'Les inscriptions sont temporairement désactivées.';
     if (message.includes('rate limit')) return 'Trop de tentatives. Attends quelques minutes.';
     if (message.includes('network')) return 'Problème de connexion. Vérifie ton accès internet.';
     return message;
@@ -111,23 +97,21 @@ export default function ConnexionScreen() {
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
 
-        {/* Header noir */}
+        {/* Header */}
         <View style={styles.top}>
           <View style={styles.logoRow}>
             <View style={styles.logoIcone}>
               <Ionicons name="location" size={22} color="#fff" />
             </View>
-            {/* Luma avec majuscule */}
             <Text style={styles.logoTexte}>Luma</Text>
           </View>
           <Text style={styles.tagline}>rejoins ton quartier</Text>
 
-          {/* Valeurs */}
           <View style={styles.valeursRow}>
             {[
-              { icon: 'location-outline',   bg: '#DBEAFE', c: '#1E40AF', label: 'Événements près de toi' },
-              { icon: 'shield-outline',      bg: '#DCFCE7', c: '#15803D', label: 'Communauté de confiance' },
-              { icon: 'people-outline',      bg: '#F3E8FF', c: '#7E22CE', label: 'Rencontres locales' },
+              { icon: 'map-outline',       bg: '#DBEAFE', c: '#1E40AF', label: 'Concerts, cinémas, marchés autour de toi' },
+              { icon: 'people-outline',    bg: '#DCFCE7', c: '#15803D', label: 'Événements créés par tes voisins' },
+              { icon: 'add-circle-outline',bg: '#F3E8FF', c: '#7E22CE', label: 'Crée tes propres événements' },
             ].map((v, i) => (
               <View key={i} style={[styles.valeurItem, { backgroundColor: v.bg }]}>
                 <Ionicons name={v.icon} size={18} color={v.c} />
@@ -137,7 +121,7 @@ export default function ConnexionScreen() {
           </View>
         </View>
 
-        {/* Formulaire blanc */}
+        {/* Formulaire */}
         <View style={styles.corps}>
           <View style={styles.switchRow}>
             {['connexion', 'inscription'].map((m) => (
@@ -261,19 +245,6 @@ export default function ConnexionScreen() {
               </>
             )}
           </TouchableOpacity>
-
-          {/* Catégories preview */}
-          <View style={styles.categoriesPreview}>
-            <Text style={styles.categoriesPreviewTitre}>9 catégories d'événements</Text>
-            <View style={styles.categoriesPreviewRow}>
-              {CATEGORIES.map((cat, i) => (
-                <View key={i} style={[styles.catPreview, { backgroundColor: cat.bg }]}>
-                  <Ionicons name={cat.icon} size={13} color={cat.c} />
-                  <Text style={[styles.catPreviewTexte, { color: cat.c }]}>{cat.nom}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -290,7 +261,7 @@ const styles = StyleSheet.create({
   tagline: { fontSize: 14, color: 'rgba(255,255,255,0.3)', marginBottom: 20 },
   valeursRow: { gap: 8 },
   valeurItem: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 12, padding: 12 },
-  valeurLabel: { fontSize: 13, fontWeight: '500' },
+  valeurLabel: { fontSize: 13, fontWeight: '500', flex: 1, lineHeight: 18 },
   corps: { flex: 1, backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingTop: 28 },
   switchRow: { flexDirection: 'row', backgroundColor: '#F5F5F5', borderRadius: 12, padding: 3, marginBottom: 22 },
   switchBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 10, borderRadius: 10 },
@@ -313,9 +284,4 @@ const styles = StyleSheet.create({
   infoVerifTexte: { flex: 1, fontSize: 12, color: '#1E40AF', lineHeight: 17 },
   btnPrincipal: { backgroundColor: '#111', borderRadius: 14, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 },
   btnTexte: { color: '#fff', fontSize: 15, fontWeight: '500' },
-  categoriesPreview: { marginTop: 24, paddingTop: 20, borderTopWidth: 0.5, borderTopColor: '#F0F0F0' },
-  categoriesPreviewTitre: { fontSize: 12, color: '#888', fontWeight: '500', marginBottom: 10, textAlign: 'center' },
-  categoriesPreviewRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, justifyContent: 'center' },
-  catPreview: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
-  catPreviewTexte: { fontSize: 11, fontWeight: '500' },
 });
