@@ -14,58 +14,55 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const CODES_ALLOCINE = {
   // MK2
-  'MK2 Bibliothèque':         'W7513',
-  'MK2 Bastille':             'C0140',
-  'MK2 Beaubourg':            'P0015',
-  'MK2 Gambetta':             'W7520',
-  'MK2 Nation':               'P0017',
-  'MK2 Parnasse':             'C0099',
-  'MK2 Odéon':                'P0019',
-  'MK2 Hautefeuille':         'W7506',
-  'MK2 Quai de Seine':        'W7519',
-  'MK2 Quai de Loire':        'P0022',
-  'Mk2 Grand Palais':         'W7508',
+  'MK2 Bibliothèque':               'C2954',
+  'MK2 Bastille':                   'C0140',
+  'MK2 Beaubourg':                  'C0050',
+  'MK2 Gambetta':                   'C0192',
+  'MK2 Nation':                     'C0144',
+  'MK2 Parnasse':                   'C0099',
+  'MK2 Odéon':                      'C0092',
+  'MK2 Quai de Seine':              'C0003',
+  'MK2 Quai de Loire':              'C1621',
+  'Mk2 Grand Palais':               'W7508',
   // Pathé / Gaumont
-  'Pathé La Villette':        'P0084',
-  'Pathé Boulogne':           'P0089',
-  'Pathé Convention':         'P0088',
-  'Pathé Wepler':             'P0057',
-  'Pathé Alésia':             'P0086',
-  'Pathé Beaugrenelle':       'P0091',
-  'Pathé Opéra Premier':      'P0053',
-  'Gaumont Parnasse':         'P0052',
-  'Gaumont Aquaboulevard':    'P0090',
-  'Gaumont Opéra Premier':    'P0069',
+  'Pathé La Villette':              'W7520',
+  'Pathé Boulogne':                 'B0247',
+  'Pathé Convention':               'C0161',
+  'Pathé Wepler':                   'C0179',
+  'Pathé Alésia':                   'C0037',
+  'Pathé Beaugrenelle':             'W7502',
+  'Pathé Opéra Premier':            'C0060',
+  'Gaumont Parnasse':               'C0158',
+  'Gaumont Aquaboulevard':          'C0116',
   // UGC
-  'UGC Ciné Cité Les Halles': 'C0159',
-  'UGC Ciné Cité Bercy':      'P0072',
-  'UGC Odéon':                'P0063',
-  'UGC Montparnasse':         'P0068',
-  'UGC Danton':               'P0070',
-  'UGC Maillot':              'P0071',
-  'UGC Gobelins':             'P0076',
-  'UGC Rotonde':              'P0076',
+  'UGC Ciné Cité Les Halles':       'C0159',
+  'UGC Ciné Cité Bercy':            'C0026',
+  'UGC Odéon':                      'C0104',
+  'UGC Montparnasse':               'C0103',
+  'UGC Danton':                     'C0102',
+  'UGC Maillot':                    'C0175',
+  'UGC Gobelins':                   'C0150',
+  'UGC Rotonde':                    'C0105',
   // Indépendants
-  'Studio 28':                'P0027',
-  'Le Balzac':                'P0026',
-  'Cinémathèque Française':   'P0030',
-  'Le Grand Rex':             'P0036',
-  'Le Louxor':                'P0096',
-  'Cinéma Le Champo':         'P0046',
-  'Luminor Hôtel de Ville':   'P0047',
-  'Forum des Images':         'C0119',
-  'La Filmothèque du Quartier Latin': 'P0062',
-  'Le Brady':                 'P0037',
+  'Studio 28':                      'C0061',
+  'Le Balzac':                      'C0009',
+  'Cinémathèque Française':         'C1559',
+  'Le Grand Rex':                   'C0065',
+  'Le Louxor':                      'W7510',
+  'Cinéma Le Champo':               'C0073',
+  'Luminor Hôtel de Ville':         'C0013',
+  'Forum des Images':               'C0119',
+  'Le Brady':                       'C0023',
+  'Cinéma Landowski':               'B0227',
 };
 
 export default function DetailLieu({ route, navigation }) {
   const { lieu } = route.params;
-  const { theme, facteurTexte } = useApp();
+  const { theme, facteurTexte, profil } = useApp();
   const [evenements, setEvenements] = useState([]);
   const [filmsGroupes, setFilmsGroupes] = useState([]);
   const [filmSelectionne, setFilmSelectionne] = useState(null);
   const [chargement, setChargement] = useState(true);
-  const [erreurSeances, setErreurSeances] = useState(false);
   const [stories, setStories] = useState([]);
   const [storyViewerVisible, setStoryViewerVisible] = useState(false);
   const t = (size) => size * facteurTexte;
@@ -106,7 +103,7 @@ export default function DetailLieu({ route, navigation }) {
     if (nom.includes('forum des images')) return 'https://www.forumdesimages.fr';
     if (nom.includes('brady')) return 'https://www.cinemalebrady.fr';
     if (nom.includes('luminor')) return 'https://www.luminor-hoteldeville.com';
-    if (nom.includes('filmoth')) return 'https://www.lafilmotheque.fr';
+    if (nom.includes('landowski')) return 'https://www.cinemascope.fr';
     if (nom.includes('olympia')) return 'https://www.olympiahall.com/agenda/';
     if (nom.includes('bataclan')) return 'https://www.bataclan.fr/programmation/';
     if (nom.includes('cigale')) return 'https://www.lacigale.fr/programmation/';
@@ -131,6 +128,12 @@ export default function DetailLieu({ route, navigation }) {
     return null;
   };
 
+  const getUrlAllocine = () => {
+    const code = CODES_ALLOCINE[lieu.nom];
+    if (code) return `https://www.allocine.fr/seance/salle_gen_csalle=${code}.html`;
+    return `https://www.allocine.fr/recherche/?q=${encodeURIComponent(lieu.nom)}`;
+  };
+
   const getLabelBouton = () => {
     if (estCinema) return 'Toutes les séances sur Allociné';
     if (estSalleConcert || estOpera) return 'Voir la programmation complète';
@@ -140,16 +143,10 @@ export default function DetailLieu({ route, navigation }) {
     return 'Voir le site officiel';
   };
 
-  const getUrlAllocine = () =>
-    `https://www.allocine.fr/recherche/?q=${encodeURIComponent(lieu.nom)}`;
-
-  useEffect(() => {
-    chargerDonnees();
-  }, [lieu.id]);
+  useEffect(() => { chargerDonnees(); }, [lieu.id]);
 
   const chargerDonnees = async () => {
     setChargement(true);
-    setErreurSeances(false);
     setFilmsGroupes([]);
     setEvenements([]);
     setStories([]);
@@ -162,7 +159,7 @@ export default function DetailLieu({ route, navigation }) {
 
   const chargerSeances = async () => {
     const codeAllocine = CODES_ALLOCINE[lieu.nom] || null;
-    if (!codeAllocine) { setErreurSeances(true); return; }
+    if (!codeAllocine) return;
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/seances-cinema`, {
         method: 'POST',
@@ -174,9 +171,8 @@ export default function DetailLieu({ route, navigation }) {
         body: JSON.stringify({ codeAllocine }),
       });
       const data = await res.json();
-      if (data.films && data.films.length > 0) setFilmsGroupes(data.films);
-      else setErreurSeances(true);
-    } catch { setErreurSeances(true); }
+      if (data.films?.length > 0) setFilmsGroupes(data.films);
+    } catch {}
   };
 
   const chargerEvenements = async () => {
@@ -187,12 +183,7 @@ export default function DetailLieu({ route, navigation }) {
       .select('*')
       .eq('actif', true)
       .gte('date_debut', maintenant)
-      .or([
-        `lieu_id.eq.${lieu.id}`,
-        `salle.ilike.%${nom}%`,
-        `lieu.ilike.%${nom}%`,
-        `adresse.ilike.%${nom}%`,
-      ].join(','))
+      .or([`lieu_id.eq.${lieu.id}`, `salle.ilike.%${nom}%`, `lieu.ilike.%${nom}%`, `adresse.ilike.%${nom}%`].join(','))
       .order('date_debut', { ascending: true })
       .limit(30);
     if (data) setEvenements(data);
@@ -201,13 +192,9 @@ export default function DetailLieu({ route, navigation }) {
   const chargerStoriesLieu = async () => {
     try {
       const { data } = await supabase
-        .from('stories')
-        .select('*, profiles(id, prenom, avatar_url), lieux_officiels(nom)')
-        .eq('actif', true)
-        .eq('lieu_id', lieu.id)
+        .from('stories').select('*').eq('actif', true).eq('lieu_id', lieu.id)
         .gte('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false })
-        .limit(20);
+        .order('created_at', { ascending: false }).limit(20);
       if (data) setStories(data);
     } catch {}
   };
@@ -246,8 +233,6 @@ export default function DetailLieu({ route, navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-
-      {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity
           onPress={() => { if (filmSelectionne) setFilmSelectionne(null); else navigation.goBack(); }}
@@ -262,11 +247,10 @@ export default function DetailLieu({ route, navigation }) {
           style={{ width: 36, alignItems: 'flex-end' }}
           onPress={() => navigation.navigate('CreerStory', { lieu })}
         >
-          <Ionicons name="add-circle-outline" size={24} color={config.couleur} />
+          <Ionicons name="camera-outline" size={22} color={config.couleur} />
         </TouchableOpacity>
       </View>
 
-      {/* Vue détail film */}
       {filmSelectionne ? (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           <View style={styles.filmHero}>
@@ -328,13 +312,16 @@ export default function DetailLieu({ route, navigation }) {
                     <TouchableOpacity
                       key={i}
                       style={[styles.seanceBulle, { borderColor: config.couleur }]}
-                      onPress={() => Linking.openURL(urlOfficiel || getUrlAllocine())}
+                      onPress={() => Linking.openURL(getUrlAllocine())}
                     >
                       <Text style={{ color: config.couleur, fontSize: t(15), fontWeight: '600' }}>
                         {formatHeure(s.date)}
                       </Text>
                       {s.version && s.version !== 'VF' && (
                         <Text style={{ color: '#888', fontSize: t(10), marginTop: 2 }}>{s.version}</Text>
+                      )}
+                      {s.salle && (
+                        <Text style={{ color: '#bbb', fontSize: t(9), marginTop: 1 }}>{s.salle}</Text>
                       )}
                     </TouchableOpacity>
                   ))}
@@ -343,22 +330,30 @@ export default function DetailLieu({ route, navigation }) {
             ))}
           </View>
 
-          <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+          <View style={{ paddingHorizontal: 16, marginTop: 8, gap: 10 }}>
             <TouchableOpacity
               style={[styles.btnPrincipal, { backgroundColor: config.couleur }]}
-              onPress={() => Linking.openURL(urlOfficiel || getUrlAllocine())}
+              onPress={() => Linking.openURL(getUrlAllocine())}
             >
               <Ionicons name="ticket-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(15), fontWeight: '600' }}>Réserver</Text>
+              <Text style={{ color: '#fff', fontSize: t(15), fontWeight: '600' }}>Réserver sur Allociné</Text>
               <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.7)" />
             </TouchableOpacity>
+            {urlOfficiel && (
+              <TouchableOpacity
+                style={[styles.btnSecondaire, { borderColor: config.couleur }]}
+                onPress={() => Linking.openURL(urlOfficiel)}
+              >
+                <Ionicons name="globe-outline" size={16} color={config.couleur} />
+                <Text style={{ color: config.couleur, fontSize: t(13), fontWeight: '500' }}>Site officiel</Text>
+                <Ionicons name="open-outline" size={14} color={config.couleur} />
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
 
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-
-          {/* Bandeau */}
           <View style={[styles.bandeau, { backgroundColor: config.couleur }]}>
             <Ionicons name={config.icone} size={15} color="#fff" />
             <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '600', letterSpacing: 0.5 }}>
@@ -366,19 +361,17 @@ export default function DetailLieu({ route, navigation }) {
             </Text>
           </View>
 
-          {/* Stories du lieu */}
           {stories.length > 0 && (
             <View style={{ borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
               <StoriesBar
                 stories={stories}
-                onPress={(s) => setStoryViewerVisible(true)}
+                onPress={() => setStoryViewerVisible(true)}
                 onCreer={() => navigation.navigate('CreerStory', { lieu })}
                 t={t}
               />
             </View>
           )}
 
-          {/* Infos */}
           <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {lieu.adresse && (
               <TouchableOpacity
@@ -411,7 +404,6 @@ export default function DetailLieu({ route, navigation }) {
             )}
           </View>
 
-          {/* Bouton Maps */}
           <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
             <TouchableOpacity
               style={[styles.btnSecondaire, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -422,19 +414,15 @@ export default function DetailLieu({ route, navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* ── CINÉMA ── */}
           {estCinema && (
             <View style={{ paddingHorizontal: 16 }}>
               <View style={styles.sectionTitre}>
                 <Text style={{ color: theme.text, fontSize: t(17), fontWeight: '500' }}>
-                  {chargement ? 'Chargement...' :
-                    filmsGroupes.length > 0
-                      ? `${filmsGroupes.length} film${filmsGroupes.length > 1 ? 's' : ''} à l'affiche`
-                      : 'Programme'}
+                  {chargement ? 'Chargement...' : filmsGroupes.length > 0 ? `${filmsGroupes.length} film${filmsGroupes.length > 1 ? 's' : ''} à l'affiche` : 'Programme'}
                 </Text>
                 {!chargement && filmsGroupes.length > 0 && (
                   <TouchableOpacity onPress={() => Linking.openURL(getUrlAllocine())}>
-                    <Text style={{ color: config.couleur, fontSize: t(12) }}>Allociné</Text>
+                    <Text style={{ color: config.couleur, fontSize: t(12) }}>Allociné ↗</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -443,7 +431,7 @@ export default function DetailLieu({ route, navigation }) {
                 <View style={[styles.vide, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <Ionicons name="film-outline" size={28} color={config.couleur} />
                   <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 8 }}>Chargement des séances...</Text>
-                  <Text style={{ color: theme.text3, fontSize: t(11), marginTop: 4 }}>Peut prendre quelques secondes</Text>
+                  <Text style={{ color: theme.text3, fontSize: t(11), marginTop: 4 }}>Données en temps réel depuis Allociné</Text>
                 </View>
               ) : filmsGroupes.length === 0 ? (
                 <View style={[styles.vide, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -451,28 +439,18 @@ export default function DetailLieu({ route, navigation }) {
                   <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500', marginTop: 8, textAlign: 'center' }}>
                     {!CODES_ALLOCINE[lieu.nom] ? 'Cinéma non connecté' : 'Aucune séance trouvée'}
                   </Text>
-                  <Text style={{ color: theme.text3, fontSize: t(12), marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
-                    {!CODES_ALLOCINE[lieu.nom] ? 'Consulte directement le site du cinéma' : 'Les séances sont chargées en temps réel'}
-                  </Text>
                   <TouchableOpacity
                     style={[styles.btnPrincipal, { backgroundColor: config.couleur, marginTop: 12 }]}
                     onPress={() => Linking.openURL(urlOfficiel || getUrlAllocine())}
                   >
-                    <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>
-                      {urlOfficiel ? 'Voir le site officiel' : 'Voir sur Allociné'}
-                    </Text>
+                    <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Voir sur Allociné</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
                 <>
                   <View style={styles.filmsGrille}>
                     {filmsGroupes.map((film, i) => (
-                      <TouchableOpacity
-                        key={i}
-                        style={styles.filmCard}
-                        onPress={() => setFilmSelectionne(film)}
-                        activeOpacity={0.85}
-                      >
+                      <TouchableOpacity key={i} style={styles.filmCard} onPress={() => setFilmSelectionne(film)} activeOpacity={0.85}>
                         {film.affiche ? (
                           <Image source={{ uri: film.affiche }} style={styles.filmCardAffiche} resizeMode="cover" />
                         ) : (
@@ -513,17 +491,11 @@ export default function DetailLieu({ route, navigation }) {
             </View>
           )}
 
-          {/* ── AUTRES LIEUX ── */}
           {!estCinema && (
             <View style={{ paddingHorizontal: 16 }}>
               <View style={styles.sectionTitre}>
                 <Text style={{ color: theme.text, fontSize: t(17), fontWeight: '500' }}>
-                  {estSalleConcert ? 'Programmation' :
-                   estTheatre ? "À l'affiche" :
-                   estOpera ? 'Programmation' :
-                   estStade ? 'Calendrier' :
-                   estMusee ? 'Expositions & événements' :
-                   'Événements'}
+                  {estSalleConcert ? 'Programmation' : estTheatre ? "À l'affiche" : estOpera ? 'Programmation' : estStade ? 'Calendrier' : estMusee ? 'Expositions & événements' : 'Événements'}
                 </Text>
                 {evenements.length > 0 && (
                   <View style={[styles.badgeCount, { backgroundColor: config.claire }]}>
@@ -611,10 +583,7 @@ export default function DetailLieu({ route, navigation }) {
                   style={[styles.btnPrincipal, { backgroundColor: config.couleur, marginTop: 16 }]}
                   onPress={() => Linking.openURL(urlOfficiel)}
                 >
-                  <Ionicons
-                    name={estSalleConcert ? 'musical-notes-outline' : estTheatre ? 'easel-outline' : estOpera ? 'mic-outline' : estStade ? 'trophy-outline' : estMusee ? 'image-outline' : 'globe-outline'}
-                    size={18} color="#fff"
-                  />
+                  <Ionicons name={estSalleConcert ? 'musical-notes-outline' : estTheatre ? 'easel-outline' : estOpera ? 'mic-outline' : estStade ? 'trophy-outline' : estMusee ? 'image-outline' : 'globe-outline'} size={18} color="#fff" />
                   <Text style={{ color: '#fff', fontSize: t(15), fontWeight: '600' }}>{getLabelBouton()}</Text>
                   <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.7)" />
                 </TouchableOpacity>
@@ -622,20 +591,16 @@ export default function DetailLieu({ route, navigation }) {
             </View>
           )}
 
-          {/* Bouton créer story */}
           <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
             <TouchableOpacity
               style={[styles.btnStory, { borderColor: config.couleur }]}
               onPress={() => navigation.navigate('CreerStory', { lieu })}
             >
               <Ionicons name="camera-outline" size={18} color={config.couleur} />
-              <Text style={{ color: config.couleur, fontSize: t(14), fontWeight: '500' }}>
-                Partager une story ici
-              </Text>
+              <Text style={{ color: config.couleur, fontSize: t(14), fontWeight: '500' }}>Partager une story ici</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Bouton créer événement */}
           <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
             <TouchableOpacity
               style={[styles.btnCreer, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -645,20 +610,16 @@ export default function DetailLieu({ route, navigation }) {
               <Text style={{ color: theme.text3, fontSize: t(14) }}>Créer un événement ici</Text>
             </TouchableOpacity>
           </View>
-
         </ScrollView>
       )}
 
-      {/* Story Viewer */}
       {storyViewerVisible && stories.length > 0 && (
         <Modal visible animationType="fade" statusBarTranslucent>
           <StoryViewer
             stories={stories}
             onFermer={() => setStoryViewerVisible(false)}
-            onVoirCarte={() => {
-              setStoryViewerVisible(false);
-              navigation.navigate('Carte');
-            }}
+            onStoryDeleted={(id) => setStories(prev => prev.filter(s => s.id !== id))}
+            onVoirCarte={() => { setStoryViewerVisible(false); navigation.navigate('Carte'); }}
             navigation={navigation}
           />
         </Modal>

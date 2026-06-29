@@ -160,7 +160,7 @@ export default function ExplorerScreen({ navigation }) {
         .eq('actif', true)
         .gte('date_debut', new Date().toISOString())
         .order('date_debut', { ascending: true })
-        .limit(500);
+        .limit(2000);
       if (data) setEvenementsOfficiels(data);
     } catch {}
   };
@@ -177,16 +177,12 @@ export default function ExplorerScreen({ navigation }) {
     } catch {}
   };
 
-  // Sans jointure profiles pour éviter le bug RLS
   const chargerStories = async () => {
     try {
       const { data } = await supabase
-        .from('stories')
-        .select('*')
-        .eq('actif', true)
+        .from('stories').select('*').eq('actif', true)
         .gte('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false })
-        .limit(50);
+        .order('created_at', { ascending: false }).limit(50);
       if (data) setStories(data);
     } catch {}
   };
@@ -205,10 +201,7 @@ export default function ExplorerScreen({ navigation }) {
         const filmsMap = {};
         data.forEach(s => {
           if (!filmsMap[s.film_titre]) {
-            filmsMap[s.film_titre] = {
-              titre: s.film_titre, affiche: s.film_affiche,
-              note: s.film_note, cinemas: new Set(), prochaineSeance: s.date_seance,
-            };
+            filmsMap[s.film_titre] = { titre: s.film_titre, affiche: s.film_affiche, note: s.film_note, cinemas: new Set() };
           }
           filmsMap[s.film_titre].cinemas.add(s.cinema_nom);
         });
@@ -268,20 +261,14 @@ export default function ExplorerScreen({ navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-
-      {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <Text style={[styles.titre, { color: theme.text }]}>Explorer</Text>
-        <TouchableOpacity
-          style={styles.creerStoryBtnHeader}
-          onPress={() => navigation.navigate('CreerStory')}
-        >
+        <TouchableOpacity style={styles.creerStoryBtnHeader} onPress={() => navigation.navigate('CreerStory')}>
           <Ionicons name="camera" size={18} color="#fff" />
           <Text style={{ color: '#fff', fontSize: t(12), fontWeight: '600' }}>Story</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Onglets */}
       <View style={[styles.ongletsWrap, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ongletsScroll}>
           {[
@@ -290,11 +277,9 @@ export default function ExplorerScreen({ navigation }) {
             { key: 'agenda',     label: '📅 Agenda' },
             { key: 'communaute', label: '👥 Communauté' },
           ].map(o => (
-            <TouchableOpacity
-              key={o.key}
+            <TouchableOpacity key={o.key}
               style={[styles.onglet, onglet === o.key && styles.ongletActif]}
-              onPress={() => setOnglet(o.key)}
-            >
+              onPress={() => setOnglet(o.key)}>
               <Text style={[styles.ongletTexte, { color: onglet === o.key ? '#fff' : theme.text3, fontSize: t(13) }]}>
                 {o.label}
               </Text>
@@ -303,14 +288,13 @@ export default function ExplorerScreen({ navigation }) {
         </ScrollView>
       </View>
 
-      {/* ── ONGLET POUR TOI ── */}
+      {/* ── POUR TOI ── */}
       {onglet === 'pourToi' && (
         <FlatList
-          data={evenementsOfficiels.slice(0, 30)}
+          data={evenementsOfficiels.slice(0, 50)}
           keyExtractor={item => `off_${item.id}`}
           ListHeaderComponent={
             <>
-              {/* Stories */}
               {stories.length > 0 ? (
                 <View style={{ borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
                   <StoriesBar
@@ -321,10 +305,7 @@ export default function ExplorerScreen({ navigation }) {
                   />
                 </View>
               ) : (
-                <TouchableOpacity
-                  style={styles.creerStoryBanner}
-                  onPress={() => navigation.navigate('CreerStory')}
-                >
+                <TouchableOpacity style={styles.creerStoryBanner} onPress={() => navigation.navigate('CreerStory')}>
                   <View style={styles.creerStoryBannerIcone}>
                     <Ionicons name="camera" size={22} color="#fff" />
                   </View>
@@ -335,7 +316,6 @@ export default function ExplorerScreen({ navigation }) {
                   <Ionicons name="chevron-forward" size={18} color="#888" />
                 </TouchableOpacity>
               )}
-
               {evenements.slice(0, 3).length > 0 && (
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 }}>
                   <View style={styles.sectionTitre}>
@@ -345,16 +325,12 @@ export default function ExplorerScreen({ navigation }) {
                     </TouchableOpacity>
                   </View>
                   {evenements.slice(0, 3).map(ev => (
-                    <CarteEvenementCommunautaire
-                      key={ev.id} item={ev} t={t}
-                      positionUser={positionUser}
+                    <CarteEvenementCommunautaire key={ev.id} item={ev} t={t} positionUser={positionUser}
                       onPress={allerDetail} onVoirCarte={voirSurCarte}
-                      CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES}
-                    />
+                      CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES} />
                   ))}
                 </View>
               )}
-
               <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
                 <View style={styles.sectionTitre}>
                   <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>À l'affiche 🎭</Text>
@@ -375,26 +351,18 @@ export default function ExplorerScreen({ navigation }) {
         />
       )}
 
-      {/* ── ONGLET LIEUX ── */}
+      {/* ── LIEUX ── */}
       {onglet === 'lieux' && (
         <View style={{ flex: 1 }}>
-          {/* Catégories horizontales */}
           <View style={[styles.catsContainer, { borderBottomColor: theme.border }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catsScroll}>
               {CATEGORIES_LIEUX.map(cat => (
-                <TouchableOpacity
-                  key={cat.key}
+                <TouchableOpacity key={cat.key}
                   style={[styles.catPill, {
                     backgroundColor: categorieActive === cat.key ? cat.couleur : theme.card,
                     borderColor: cat.couleur,
                   }]}
-                  onPress={() => {
-                    setCategorieActive(categorieActive === cat.key ? null : cat.key);
-                    setRechercheLieu('');
-                    setModeRechercheFilm(false);
-                    setRechercheFilm('');
-                  }}
-                >
+                  onPress={() => { setCategorieActive(categorieActive === cat.key ? null : cat.key); setRechercheLieu(''); setModeRechercheFilm(false); setRechercheFilm(''); }}>
                   <Ionicons name={cat.icon} size={16} color={categorieActive === cat.key ? '#fff' : cat.couleur} />
                   <Text style={{ color: categorieActive === cat.key ? '#fff' : theme.text, fontSize: t(13), fontWeight: '500' }}>
                     {cat.label}
@@ -404,17 +372,12 @@ export default function ExplorerScreen({ navigation }) {
             </ScrollView>
           </View>
 
-          {/* Recherche — film ou lieu */}
           {categorieActive && (
             <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: modeRechercheFilm && categorieActive === 'cinema' ? '#9F1239' : theme.border }]}>
               <Ionicons name="search-outline" size={15} color={theme.text3} />
               <TextInput
                 style={[styles.searchInput, { color: theme.text, fontSize: t(13) }]}
-                placeholder={
-                  categorieActive === 'cinema' && modeRechercheFilm
-                    ? 'Cherche un film...'
-                    : `Cherche un ${configActive?.label.toLowerCase() || 'lieu'}...`
-                }
+                placeholder={categorieActive === 'cinema' && modeRechercheFilm ? 'Cherche un film...' : `Cherche un ${configActive?.label.toLowerCase() || 'lieu'}...`}
                 placeholderTextColor={theme.text3}
                 value={categorieActive === 'cinema' && modeRechercheFilm ? rechercheFilm : rechercheLieu}
                 onChangeText={categorieActive === 'cinema' && modeRechercheFilm ? setRechercheFilm : setRechercheLieu}
@@ -427,8 +390,7 @@ export default function ExplorerScreen({ navigation }) {
               {categorieActive === 'cinema' && (
                 <TouchableOpacity
                   style={[styles.switchModeBtn, { backgroundColor: modeRechercheFilm ? '#9F1239' : theme.bg }]}
-                  onPress={() => { setModeRechercheFilm(v => !v); setRechercheFilm(''); setRechercheLieu(''); }}
-                >
+                  onPress={() => { setModeRechercheFilm(v => !v); setRechercheFilm(''); setRechercheLieu(''); }}>
                   <Text style={{ color: modeRechercheFilm ? '#fff' : theme.text3, fontSize: t(10), fontWeight: '500' }}>
                     {modeRechercheFilm ? '🎬 Film' : '📍 Lieu'}
                   </Text>
@@ -437,7 +399,6 @@ export default function ExplorerScreen({ navigation }) {
             </View>
           )}
 
-          {/* Résultats recherche film */}
           {modeRechercheFilm && categorieActive === 'cinema' ? (
             <FlatList
               data={resultatsFilm}
@@ -453,9 +414,7 @@ export default function ExplorerScreen({ navigation }) {
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600', marginBottom: 4 }}>
-                        {item.titre}
-                      </Text>
+                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600', marginBottom: 4 }}>{item.titre}</Text>
                       {item.note && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                           <Ionicons name="star" size={12} color="#F59E0B" />
@@ -470,11 +429,9 @@ export default function ExplorerScreen({ navigation }) {
                   {item.cinemas.map((cinema, i) => {
                     const lieu = lieux.find(l => l.nom === cinema);
                     return (
-                      <TouchableOpacity
-                        key={i}
+                      <TouchableOpacity key={i}
                         style={[styles.filmCinemaLigne, { borderTopColor: theme.border }]}
-                        onPress={() => lieu && allerDetailLieu(lieu)}
-                      >
+                        onPress={() => lieu && allerDetailLieu(lieu)}>
                         <Ionicons name="location-outline" size={13} color="#9F1239" />
                         <Text style={{ color: theme.text, fontSize: t(13), flex: 1 }}>{cinema}</Text>
                         {lieu && <Ionicons name="chevron-forward" size={14} color="#9F1239" />}
@@ -500,43 +457,32 @@ export default function ExplorerScreen({ navigation }) {
             <FlatList
               data={lieuxFiltres}
               keyExtractor={item => `lieu_${item.id}`}
-              renderItem={({ item }) => {
-                const config = configActive || CATEGORIES_LIEUX[0];
-                return (
-                  <TouchableOpacity
-                    style={[styles.lieuCard, { borderLeftColor: config.couleur }]}
-                    onPress={() => allerDetailLieu(item)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.lieuIcone, { backgroundColor: config.bg }]}>
-                      <Ionicons name={config.icon} size={20} color={config.couleur} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500', marginBottom: 2 }} numberOfLines={1}>
-                        {item.nom}
-                      </Text>
-                      {item.adresse && (
-                        <Text style={{ color: '#888', fontSize: t(12) }} numberOfLines={1}>{item.adresse}</Text>
-                      )}
-                      {positionUser && item.latitude && (
-                        <Text style={{ color: config.couleur, fontSize: t(11), marginTop: 2 }}>
-                          {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10} km
-                        </Text>
-                      )}
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={config.couleur} />
-                  </TouchableOpacity>
-                );
-              }}
-              ListHeaderComponent={
-                lieuxFiltres.length > 0 ? (
-                  <View style={[styles.sectionTitre, { paddingHorizontal: 0 }]}>
-                    <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600' }}>
-                      {configActive?.label} · {lieuxFiltres.length}
-                    </Text>
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.lieuCard, { borderLeftColor: configActive?.couleur || '#888' }]}
+                  onPress={() => allerDetailLieu(item)} activeOpacity={0.7}>
+                  <View style={[styles.lieuIcone, { backgroundColor: configActive?.bg || '#F5F5F5' }]}>
+                    <Ionicons name={configActive?.icon || 'location'} size={20} color={configActive?.couleur || '#888'} />
                   </View>
-                ) : null
-              }
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500', marginBottom: 2 }} numberOfLines={1}>{item.nom}</Text>
+                    {item.adresse && <Text style={{ color: '#888', fontSize: t(12) }} numberOfLines={1}>{item.adresse}</Text>}
+                    {positionUser && item.latitude && (
+                      <Text style={{ color: configActive?.couleur || '#888', fontSize: t(11), marginTop: 2 }}>
+                        {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10} km
+                      </Text>
+                    )}
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={configActive?.couleur || '#888'} />
+                </TouchableOpacity>
+              )}
+              ListHeaderComponent={lieuxFiltres.length > 0 ? (
+                <View style={[styles.sectionTitre, { paddingHorizontal: 0 }]}>
+                  <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600' }}>
+                    {configActive?.label} · {lieuxFiltres.length}
+                  </Text>
+                </View>
+              ) : null}
               ListEmptyComponent={
                 <View style={styles.vide}>
                   <Text style={{ color: theme.text3, fontSize: t(14) }}>Aucun lieu trouvé</Text>
@@ -547,9 +493,7 @@ export default function ExplorerScreen({ navigation }) {
           ) : (
             <View style={styles.vide}>
               <Ionicons name="map-outline" size={48} color={theme.text3} />
-              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600', marginTop: 12 }}>
-                Choisis une catégorie
-              </Text>
+              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600', marginTop: 12 }}>Choisis une catégorie</Text>
               <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 6, textAlign: 'center', lineHeight: 20 }}>
                 Cinémas, salles de concert, musées, théâtres, marchés...
               </Text>
@@ -558,7 +502,7 @@ export default function ExplorerScreen({ navigation }) {
         </View>
       )}
 
-      {/* ── ONGLET AGENDA ── */}
+      {/* ── AGENDA ── */}
       {onglet === 'agenda' && (
         <>
           <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -567,8 +511,7 @@ export default function ExplorerScreen({ navigation }) {
               style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
               placeholder="Rechercher un événement..."
               placeholderTextColor={theme.text3}
-              value={recherche}
-              onChangeText={setRecherche}
+              value={recherche} onChangeText={setRecherche}
             />
             {recherche.length > 0 && (
               <TouchableOpacity onPress={() => setRecherche('')}>
@@ -576,7 +519,6 @@ export default function ExplorerScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
-
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 48 }} contentContainerStyle={styles.filtresScroll}>
             {[
               { key: 'tous', label: 'Toutes dates' },
@@ -587,8 +529,7 @@ export default function ExplorerScreen({ navigation }) {
             ].map(f => (
               <TouchableOpacity key={f.key}
                 style={[styles.filtrePill, filtreDate === f.key && styles.filtrePillActif]}
-                onPress={() => { setFiltreDate(f.key); if (f.key === 'date_precise') setShowDatePicker(true); }}
-              >
+                onPress={() => { setFiltreDate(f.key); if (f.key === 'date_precise') setShowDatePicker(true); }}>
                 <Text style={[styles.filtrePillTexte, { fontSize: t(12), color: filtreDate === f.key ? '#fff' : theme.text3 }]}>
                   {f.label}
                 </Text>
@@ -596,17 +537,14 @@ export default function ExplorerScreen({ navigation }) {
             ))}
             <TouchableOpacity
               style={[styles.filtrePill, filtreGratuit && { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}
-              onPress={() => setFiltreGratuit(v => !v)}
-            >
+              onPress={() => setFiltreGratuit(v => !v)}>
               <Text style={[styles.filtrePillTexte, { fontSize: t(12), color: filtreGratuit ? '#15803D' : theme.text3 }]}>Gratuit</Text>
             </TouchableOpacity>
           </ScrollView>
-
           {showDatePicker && (
             <DateTimePicker value={datePrecise} mode="date" minimumDate={new Date()}
               onChange={(e, d) => { setShowDatePicker(false); if (d) { setDatePrecise(d); setFiltreDate('date_precise'); } }} />
           )}
-
           <FlatList
             data={agendaFiltres}
             keyExtractor={item => `agenda_${item.id}`}
@@ -619,21 +557,19 @@ export default function ExplorerScreen({ navigation }) {
               <View style={styles.vide}>
                 <Ionicons name="calendar-outline" size={40} color={theme.text3} />
                 <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>Aucun événement</Text>
-                <TouchableOpacity
-                  style={[styles.effacerBtn, { marginTop: 12 }]}
-                  onPress={() => { setFiltreDate('tous'); setFiltreGratuit(false); setRecherche(''); }}
-                >
+                <TouchableOpacity style={[styles.effacerBtn, { marginTop: 12 }]}
+                  onPress={() => { setFiltreDate('tous'); setFiltreGratuit(false); setRecherche(''); }}>
                   <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Effacer les filtres</Text>
                 </TouchableOpacity>
               </View>
             }
             contentContainerStyle={{ paddingTop: 8, paddingBottom: 20 }}
-            removeClippedSubviews maxToRenderPerBatch={10} windowSize={10}
+            removeClippedSubviews maxToRenderPerBatch={15} windowSize={10}
           />
         </>
       )}
 
-      {/* ── ONGLET COMMUNAUTÉ ── */}
+      {/* ── COMMUNAUTÉ ── */}
       {onglet === 'communaute' && (
         <>
           <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -642,8 +578,7 @@ export default function ExplorerScreen({ navigation }) {
               style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
               placeholder="Rechercher un événement..."
               placeholderTextColor={theme.text3}
-              value={recherche}
-              onChangeText={setRecherche}
+              value={recherche} onChangeText={setRecherche}
             />
             {recherche.length > 0 && (
               <TouchableOpacity onPress={() => setRecherche('')}>
@@ -651,29 +586,21 @@ export default function ExplorerScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
-
           <FlatList
             data={communautairesFiltres}
             keyExtractor={item => `comm_${item.id}`}
             renderItem={({ item }) => (
               <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-                <CarteEvenementCommunautaire
-                  item={item} t={t} positionUser={positionUser}
+                <CarteEvenementCommunautaire item={item} t={t} positionUser={positionUser}
                   onPress={allerDetail} onVoirCarte={voirSurCarte}
-                  CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES}
-                />
+                  CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES} />
               </View>
             )}
             ListEmptyComponent={
               <View style={styles.vide}>
                 <Ionicons name="people-outline" size={40} color={theme.text3} />
-                <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>
-                  Aucun événement communautaire
-                </Text>
-                <TouchableOpacity
-                  style={[styles.effacerBtn, { marginTop: 12 }]}
-                  onPress={() => navigation.navigate('AjoutEvenement')}
-                >
+                <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>Aucun événement communautaire</Text>
+                <TouchableOpacity style={[styles.effacerBtn, { marginTop: 12 }]} onPress={() => navigation.navigate('AjoutEvenement')}>
                   <Ionicons name="add" size={16} color="#fff" />
                   <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Créer un événement</Text>
                 </TouchableOpacity>
@@ -685,7 +612,6 @@ export default function ExplorerScreen({ navigation }) {
         </>
       )}
 
-      {/* Story Viewer */}
       {storyViewerVisible && storiesSelectionnees.length > 0 && (
         <Modal visible animationType="fade" statusBarTranslucent>
           <StoryViewer
@@ -721,7 +647,7 @@ const styles = StyleSheet.create({
   catPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
   lieuCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden' },
   lieuIcone: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  evCard: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden', marginBottom: 0 },
+  evCard: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden' },
   evCardHaut: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   evImage: { width: 52, height: 52, borderRadius: 10, flexShrink: 0 },
   evImagePlaceholder: { width: 52, height: 52, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
