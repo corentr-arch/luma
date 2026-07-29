@@ -1,11 +1,15 @@
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jsvnuvjntlxalbdufgbu.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impzdm51dmpudGx4YWxiZHVmZ2J1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU3MDU5NSwiZXhwIjoyMDk2MTQ2NTk1fQ.rcdErLkXRN77VMu1aW8yqieduV-t9r-huYpp5AFZRUA';
+require('dotenv').config({ path: '.env.local' });
 
-// Limite max d'événements à importer
-// Assez pour être complet, pas trop pour ne pas faire ramer l'appli
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  console.error('❌ Variables manquantes dans .env.local');
+  process.exit(1);
+}
+
 const MAX_EVENEMENTS = 3000;
 
-// QFP encode l'heure locale Paris comme UTC
 function corrigerDate(dateStr) {
   if (!dateStr) return null;
   try {
@@ -40,7 +44,6 @@ function mappingCategorie(tags, titre, description, lieu) {
   return 'Art';
 }
 
-// Filtre les événements religieux
 function estReligieux(r) {
   const tout = [r.title || '', r.lead_text || '', r.address_name || '', (r.tags || []).join(' ')]
     .join(' ').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -48,7 +51,6 @@ function estReligieux(r) {
 }
 
 async function fetchPage(offset) {
-  // Trie par date_start ASC pour avoir les plus proches en premier
   const maintenant = new Date().toISOString();
   const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/que-faire-a-paris-/records?limit=100&offset=${offset}&order_by=date_start+asc&where=date_end>='${maintenant}'`;
   const res = await fetch(url);
@@ -60,10 +62,7 @@ async function fetchPage(offset) {
 async function supprimerAnciens() {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/evenements_officiels?source=eq.que_faire_paris`, {
     method: 'DELETE',
-    headers: {
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-    },
+    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
   });
   console.log(`🗑️  Suppression anciens : HTTP ${res.status}`);
 }
@@ -94,17 +93,13 @@ async function main() {
   console.log('🚀 Import Que faire à Paris — ordre chronologique');
   console.log('==================================================');
 
-  // Test connexion
   const premiere = await fetchPage(0);
   const totalDisponible = premiere.total;
   const totalImport = Math.min(totalDisponible, MAX_EVENEMENTS);
-
-  console.log(`📅 ${totalDisponible} événements disponibles à venir`);
-  console.log(`📥 Import des ${totalImport} premiers (ordre chronologique)`);
+  console.log(`📅 ${totalDisponible} événements disponibles — import des ${totalImport} premiers`);
 
   await supprimerAnciens();
 
-  // Récupère toutes les pages
   let tousLesRecords = [...premiere.results];
   const nbPages = Math.ceil(totalImport / 100);
 
@@ -127,7 +122,7 @@ async function main() {
   const limite = new Date(maintenant.getTime() - 2 * 3600 * 1000);
 
   const evenements = tousLesRecords
-    .filter(r => !estReligieux(r)) // Exclut les événements religieux
+    .filter(r => !estReligieux(r))
     .map(r => {
       try {
         const lat = r.lat_lon?.lat || r.geo_point_2d?.lat;
@@ -136,26 +131,17 @@ async function main() {
 
         const dateDebutCorrigee = corrigerDate(r.date_start);
         const dateFinCorrigee = corrigerDate(r.date_end);
-
-        const dateDebut = dateDebutCorrigee ? new Date(dateDebutCorrigee) : null;
-        const dateFin = dateFinCorrigee ? new Date(dateFinCorrigee) : null;
-        const dateRef = dateFin || dateDebut;
+        const dateRef = dateFinCorrigee ? new Date(dateFinCorrigee) : dateDebutCorrigee ? new Date(dateDebutCorrigee) : null;
         if (dateRef && dateRef < limite) return null;
 
-        const categorie = mappingCategorie(
-          r.tags || [],
-          r.title || '',
-          r.lead_text || r.description || '',
-          r.address_name || ''
-        );
+        const categorie = mappingCategorie(r.tags || [], r.title || '', r.lead_text || r.description || '', r.address_name || '');
 
         return {
           titre: String(r.title || 'Événement').slice(0, 200),
           description: r.lead_text ? String(r.lead_text).slice(0, 500) : null,
           categorie,
           lieu: r.address_name ? String(r.address_name).slice(0, 200) : null,
-          adresse: [r.address_street, r.address_zipcode, r.address_city]
-            .filter(Boolean).join(', ').slice(0, 300),
+          adresse: [r.address_street, r.address_zipcode, r.address_city].filter(Boolean).join(', ').slice(0, 300),
           latitude: parseFloat(lat),
           longitude: parseFloat(lon),
           date_debut: dateDebutCorrigee,
@@ -172,7 +158,6 @@ async function main() {
       } catch { return null; }
     })
     .filter(Boolean)
-    // Tri final chronologique
     .sort((a, b) => {
       if (!a.date_debut) return 1;
       if (!b.date_debut) return -1;
@@ -180,30 +165,15 @@ async function main() {
     });
 
   console.log(`   Valides (sans religieux) : ${evenements.length}`);
-
-  if (evenements.length === 0) {
-    console.log('⚠️  Aucun événement valide');
-    return;
-  }
+  if (evenements.length === 0) { console.log('⚠️  Aucun événement valide'); return; }
 
   const inseres = await insererLots(evenements);
-  console.log(`\n✅ ${inseres} événements insérés en ordre chronologique`);
+  console.log(`\n✅ ${inseres} événements insérés`);
 
   const stats = {};
   evenements.forEach(e => { stats[e.categorie] = (stats[e.categorie] || 0) + 1; });
   console.log('\n📊 Par catégorie :');
-  Object.entries(stats).sort((a, b) => b[1] - a[1])
-    .forEach(([cat, nb]) => console.log(`   ${cat.padEnd(22)} ${nb}`));
-
-  // Aperçu des 5 premiers
-  console.log('\n📅 5 premiers événements :');
-  evenements.slice(0, 5).forEach(e => {
-    const d = e.date_debut ? new Date(e.date_debut).toLocaleDateString('fr-FR', {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-      timeZone: 'Europe/Paris',
-    }) : 'Sans date';
-    console.log(`   ${d.padEnd(20)} ${e.titre.slice(0, 50)}`);
-  });
+  Object.entries(stats).sort((a, b) => b[1] - a[1]).forEach(([cat, nb]) => console.log(`   ${cat.padEnd(22)} ${nb}`));
 }
 
 main().catch(console.error);

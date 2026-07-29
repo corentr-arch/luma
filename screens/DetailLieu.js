@@ -9,51 +9,44 @@ import { supabase } from '../supabase';
 import StoriesBar from '../components/StoriesBar';
 import StoryViewer from '../components/StoryViewer';
 
-const SUPABASE_URL = 'https://jsvnuvjntlxalbdufgbu.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impzdm51dmludGx4YWxiZHVmZ2J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYwMTI5MjcsImV4cCI6MjA2MTU4ODkyN30.sWpHBDvBq5DI_LNjRFaMkFBRjQwM6oU_KvXrSEa8JeY';
-
 const CODES_ALLOCINE = {
-  // MK2
-  'MK2 Bibliothèque':               'C2954',
-  'MK2 Bastille':                   'C0140',
-  'MK2 Beaubourg':                  'C0050',
-  'MK2 Gambetta':                   'C0192',
-  'MK2 Nation':                     'C0144',
-  'MK2 Parnasse':                   'C0099',
-  'MK2 Odéon':                      'C0092',
-  'MK2 Quai de Seine':              'C0003',
-  'MK2 Quai de Loire':              'C1621',
-  'Mk2 Grand Palais':               'W7508',
-  // Pathé / Gaumont
-  'Pathé La Villette':              'W7520',
-  'Pathé Boulogne':                 'B0247',
-  'Pathé Convention':               'C0161',
-  'Pathé Wepler':                   'C0179',
-  'Pathé Alésia':                   'C0037',
-  'Pathé Beaugrenelle':             'W7502',
-  'Pathé Opéra Premier':            'C0060',
-  'Gaumont Parnasse':               'C0158',
-  'Gaumont Aquaboulevard':          'C0116',
-  // UGC
-  'UGC Ciné Cité Les Halles':       'C0159',
-  'UGC Ciné Cité Bercy':            'C0026',
-  'UGC Odéon':                      'C0104',
-  'UGC Montparnasse':               'C0103',
-  'UGC Danton':                     'C0102',
-  'UGC Maillot':                    'C0175',
-  'UGC Gobelins':                   'C0150',
-  'UGC Rotonde':                    'C0105',
-  // Indépendants
-  'Studio 28':                      'C0061',
-  'Le Balzac':                      'C0009',
-  'Cinémathèque Française':         'C1559',
-  'Le Grand Rex':                   'C0065',
-  'Le Louxor':                      'W7510',
-  'Cinéma Le Champo':               'C0073',
-  'Luminor Hôtel de Ville':         'C0013',
-  'Forum des Images':               'C0119',
-  'Le Brady':                       'C0023',
-  'Cinéma Landowski':               'B0227',
+  'MK2 Bibliothèque':         'C2954',
+  'MK2 Bastille':             'C0140',
+  'MK2 Beaubourg':            'C0050',
+  'MK2 Gambetta':             'C0192',
+  'MK2 Nation':               'C0144',
+  'MK2 Parnasse':             'C0099',
+  'MK2 Odéon':                'C0092',
+  'MK2 Quai de Seine':        'C0003',
+  'MK2 Quai de Loire':        'C1621',
+  'Mk2 Grand Palais':         'W7508',
+  'Pathé La Villette':        'W7520',
+  'Pathé Boulogne':           'B0247',
+  'Pathé Convention':         'C0161',
+  'Pathé Wepler':             'C0179',
+  'Pathé Alésia':             'C0037',
+  'Pathé Beaugrenelle':       'W7502',
+  'Pathé Opéra Premier':      'C0060',
+  'Gaumont Parnasse':         'C0158',
+  'Gaumont Aquaboulevard':    'C0116',
+  'UGC Ciné Cité Les Halles': 'C0159',
+  'UGC Ciné Cité Bercy':      'C0026',
+  'UGC Odéon':                'C0104',
+  'UGC Montparnasse':         'C0103',
+  'UGC Danton':               'C0102',
+  'UGC Maillot':              'C0175',
+  'UGC Gobelins':             'C0150',
+  'UGC Rotonde':              'C0105',
+  'Studio 28':                'C0061',
+  'Le Balzac':                'C0009',
+  'Cinémathèque Française':   'C1559',
+  'Le Grand Rex':             'C0065',
+  'Le Louxor':                'W7510',
+  'Cinéma Le Champo':         'C0073',
+  'Luminor Hôtel de Ville':   'C0013',
+  'Forum des Images':         'C0119',
+  'Le Brady':                 'C0023',
+  'Cinéma Landowski':         'B0227',
 };
 
 export default function DetailLieu({ route, navigation }) {
@@ -65,6 +58,7 @@ export default function DetailLieu({ route, navigation }) {
   const [chargement, setChargement] = useState(true);
   const [stories, setStories] = useState([]);
   const [storyViewerVisible, setStoryViewerVisible] = useState(false);
+  const [derniereMaj, setDerniereMaj] = useState(null);
   const t = (size) => size * facteurTexte;
 
   const estCinema = lieu.sous_categorie === 'Cinéma';
@@ -157,21 +151,40 @@ export default function DetailLieu({ route, navigation }) {
     setChargement(false);
   };
 
+  // Lecture depuis la table seances_cinema (mise à jour hebdomadaire)
   const chargerSeances = async () => {
-    const codeAllocine = CODES_ALLOCINE[lieu.nom] || null;
-    if (!codeAllocine) return;
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/seances-cinema`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ codeAllocine }),
-      });
-      const data = await res.json();
-      if (data.films?.length > 0) setFilmsGroupes(data.films);
+      const { data } = await supabase
+        .from('seances_cinema')
+        .select('*')
+        .eq('cinema_nom', lieu.nom)
+        .gte('date_seance', new Date().toISOString())
+        .order('date_seance', { ascending: true });
+
+      if (data && data.length > 0) {
+        const filmsMap = {};
+        data.forEach(s => {
+          if (!filmsMap[s.film_titre]) {
+            filmsMap[s.film_titre] = {
+              titre: s.film_titre,
+              affiche: s.film_affiche,
+              synopsis: s.film_synopsis,
+              duree: s.film_duree,
+              genre: s.film_genre,
+              note: s.film_note,
+              annee: s.film_annee,
+              seances: [],
+            };
+          }
+          filmsMap[s.film_titre].seances.push({
+            date: s.date_seance,
+            version: s.version,
+            salle: s.salle,
+          });
+        });
+        setFilmsGroupes(Object.values(filmsMap));
+        if (data[0]?.created_at) setDerniereMaj(data[0].created_at);
+      }
     } catch {}
   };
 
@@ -211,12 +224,17 @@ export default function DetailLieu({ route, navigation }) {
     return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
   };
 
-  const formatDuree = (runtime) => {
-    if (!runtime) return null;
-    const matchH = runtime.match(/(\d+)h/);
-    const matchM = runtime.match(/(\d+)min/);
-    if (!matchH && !matchM) return null;
-    return `${matchH ? parseInt(matchH[1]) : 0}h${String(matchM ? parseInt(matchM[1]) : 0).padStart(2, '0')}`;
+  const formatDuree = (minutes) => {
+  if (!minutes) return null;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}h${String(m).padStart(2, '0')}`;
+};
+
+  const formatMaj = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
   };
 
   const seancesParJour = (seancesFilm) => {
@@ -417,9 +435,16 @@ export default function DetailLieu({ route, navigation }) {
           {estCinema && (
             <View style={{ paddingHorizontal: 16 }}>
               <View style={styles.sectionTitre}>
-                <Text style={{ color: theme.text, fontSize: t(17), fontWeight: '500' }}>
-                  {chargement ? 'Chargement...' : filmsGroupes.length > 0 ? `${filmsGroupes.length} film${filmsGroupes.length > 1 ? 's' : ''} à l'affiche` : 'Programme'}
-                </Text>
+                <View>
+                  <Text style={{ color: theme.text, fontSize: t(17), fontWeight: '500' }}>
+                    {chargement ? 'Chargement...' : filmsGroupes.length > 0 ? `${filmsGroupes.length} film${filmsGroupes.length > 1 ? 's' : ''} à l'affiche` : 'Programme'}
+                  </Text>
+                  {derniereMaj && (
+                    <Text style={{ color: theme.text3, fontSize: t(10), marginTop: 2 }}>
+                      Mis à jour le {formatMaj(derniereMaj)}
+                    </Text>
+                  )}
+                </View>
                 {!chargement && filmsGroupes.length > 0 && (
                   <TouchableOpacity onPress={() => Linking.openURL(getUrlAllocine())}>
                     <Text style={{ color: config.couleur, fontSize: t(12) }}>Allociné ↗</Text>
@@ -430,14 +455,16 @@ export default function DetailLieu({ route, navigation }) {
               {chargement ? (
                 <View style={[styles.vide, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <Ionicons name="film-outline" size={28} color={config.couleur} />
-                  <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 8 }}>Chargement des séances...</Text>
-                  <Text style={{ color: theme.text3, fontSize: t(11), marginTop: 4 }}>Données en temps réel depuis Allociné</Text>
+                  <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 8 }}>Chargement...</Text>
                 </View>
               ) : filmsGroupes.length === 0 ? (
                 <View style={[styles.vide, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <Ionicons name="film-outline" size={28} color={theme.text3} />
                   <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500', marginTop: 8, textAlign: 'center' }}>
-                    {!CODES_ALLOCINE[lieu.nom] ? 'Cinéma non connecté' : 'Aucune séance trouvée'}
+                    Aucune séance disponible
+                  </Text>
+                  <Text style={{ color: theme.text3, fontSize: t(12), marginTop: 4, textAlign: 'center' }}>
+                    Programmation mise à jour chaque semaine
                   </Text>
                   <TouchableOpacity
                     style={[styles.btnPrincipal, { backgroundColor: config.couleur, marginTop: 12 }]}
