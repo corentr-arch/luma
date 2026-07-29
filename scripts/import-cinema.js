@@ -26,7 +26,7 @@ const CODES_ALLOCINE = {
   'Pathé Alésia':             'C0037',
   'Pathé Beaugrenelle':       'W7502',
   'Pathé Opéra Premier':      'C0060',
-  'Pathé Île Seguin':         'W7503',
+  'Pathé Île Seguin':         'G0GJC',
   'Gaumont Parnasse':         'C0158',
   'Gaumont Aquaboulevard':    'C0116',
   'UGC Ciné Cité Les Halles': 'C0159',
@@ -49,14 +49,29 @@ const CODES_ALLOCINE = {
   'Cinéma Landowski':         'B0227',
 };
 
+// User-agents variés pour éviter le ban
+const USER_AGENTS = [
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+];
+
+function userAgentAleatoire() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function attendre(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 function getParisDSTOffset(date) {
   const year = date.getUTCFullYear();
   const marchFin = new Date(Date.UTC(year, 2, 31));
   marchFin.setUTCDate(31 - marchFin.getUTCDay());
   const octobreFin = new Date(Date.UTC(year, 9, 31));
   octobreFin.setUTCDate(31 - octobreFin.getUTCDay());
-  if (date >= marchFin && date < octobreFin) return 120;
-  return 60;
+  return (date >= marchFin && date < octobreFin) ? 120 : 60;
 }
 
 function parseVersion(s, typeKey) {
@@ -88,17 +103,31 @@ function parseDureeMinutes(runtime) {
   return total > 0 ? total : null;
 }
 
-async function fetchSeances(code, date) {
+async function fetchSeancesAvecRetry(code, date, essai = 0) {
   const url = `https://www.allocine.fr/_/showtimes/theater-${code}/d-${date}/`;
   try {
     const r = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
+        'User-Agent': userAgentAleatoire(),
         'Accept': 'application/json',
         'Referer': 'https://www.allocine.fr',
         'Accept-Language': 'fr-FR,fr;q=0.9',
+        'Cache-Control': 'no-cache',
       },
     });
+
+    // Ban détecté — attend et réessaie
+    if (r.status === 429 || r.status === 403) {
+      if (essai < 3) {
+        const delai = (essai + 1) * 30000; // 30s, 60s, 90s
+        console.log(`\n⚠️  Ban détecté pour ${code} — attente ${delai / 1000}s...`);
+        await attendre(delai);
+        return fetchSeancesAvecRetry(code, date, essai + 1);
+      }
+      console.log(`\n❌ Ban permanent pour ${code} après ${essai} essais`);
+      return [];
+    }
+
     if (!r.ok) return [];
     const json = await r.json();
     return json.results || [];
@@ -108,12 +137,16 @@ async function fetchSeances(code, date) {
 async function scraperCinema(nomCinema, code) {
   const seances = [];
   const maintenant = new Date();
+  // Commence à aujourd'hui minuit pour ne pas rater les séances du soir
+  const debut = new Date();
+  debut.setHours(0, 0, 0, 0);
 
   for (let j = 0; j < 7; j++) {
-    const date = new Date();
+    const date = new Date(debut);
     date.setDate(date.getDate() + j);
     const dateStr = date.toISOString().split('T')[0];
-    const resultats = await fetchSeances(code, dateStr);
+
+    const resultats = await fetchSeancesAvecRetry(code, dateStr);
 
     for (const item of resultats) {
       const film = item.movie;
@@ -134,6 +167,7 @@ async function scraperCinema(nomCinema, code) {
       for (const typeKey of tousTypes) {
         for (const s of showtimesObj[typeKey] || []) {
           if (!s.startsAt) continue;
+
           const raw = s.startsAt;
           let dateSeance;
           if (raw.endsWith('Z') || /T.*[-+]\d{2}:\d{2}$/.test(raw)) {
@@ -143,7 +177,10 @@ async function scraperCinema(nomCinema, code) {
             const offset = getParisDSTOffset(tempDate);
             dateSeance = new Date(tempDate.getTime() - offset * 60 * 1000);
           }
-          if (dateSeance < maintenant) continue;
+
+          // Garde toutes les séances d'aujourd'hui même passées
+          // (pour que l'affichage soit correct dès le matin)
+          if (j > 0 && dateSeance < maintenant) continue;
 
           seances.push({
             cinema_nom: nomCinema,
@@ -166,7 +203,9 @@ async function scraperCinema(nomCinema, code) {
         }
       }
     }
-    await new Promise(r => setTimeout(r, 150));
+
+    // Délai entre chaque jour — plus long pour éviter le ban
+    await attendre(800 + Math.random() * 400);
   }
   return seances;
 }
@@ -176,7 +215,7 @@ async function supprimerAnciennesSeances() {
     method: 'DELETE',
     headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
   });
-  console.log(`🗑️  Reset complet : HTTP ${res.status}`);
+  console.log(`🗑️  Reset : HTTP ${res.status}`);
 }
 
 async function insererLots(seances) {
@@ -202,8 +241,10 @@ async function insererLots(seances) {
 }
 
 async function main() {
-  console.log('🎬 Import programmation cinémas — hebdomadaire');
-  console.log('================================================');
+  console.log('🎬 Import programmation cinémas');
+  console.log('================================');
+  console.log('⏱️  Délais augmentés pour éviter le ban Allociné\n');
+
   await supprimerAnciennesSeances();
 
   let toutesLesSeances = [];
@@ -215,7 +256,11 @@ async function main() {
     const seances = await scraperCinema(nom, code);
     toutesLesSeances.push(...seances);
     console.log(` → ${seances.length} séances`);
-    await new Promise(r => setTimeout(r, 300));
+
+    // Délai aléatoire entre cinémas — 2 à 4 secondes
+    if (i < entries.length - 1) {
+      await attendre(2000 + Math.random() * 2000);
+    }
   }
 
   console.log(`\n📊 Total : ${toutesLesSeances.length} séances`);
