@@ -26,17 +26,13 @@ export default function CreerStoryScreen({ navigation, route }) {
   const lieuPrechoisit = route.params?.lieu || null;
   const evenementPrechoisit = route.params?.evenement || null;
 
-  // Camera
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   const [showCamera, setShowCamera] = useState(false);
   const [facingCamera, setFacingCamera] = useState('back');
 
-  // Media
   const mediaRef = useRef(null);
   const [mediaAffiche, setMediaAffiche] = useState(null);
-
-  // Story
   const [texte, setTexte] = useState('');
   const [type, setType] = useState(
     lieuPrechoisit ? 'lieu' : evenementPrechoisit ? 'evenement' : 'spot'
@@ -56,7 +52,6 @@ export default function CreerStoryScreen({ navigation, route }) {
   const [etape, setEtape] = useState('media');
   const [editTexte, setEditTexte] = useState(false);
 
-  // Texte draggable
   const textePosX = useRef(new Animated.Value(W / 2 - 100)).current;
   const textePosY = useRef(new Animated.Value(H * 0.35)).current;
   const panResponder = useRef(
@@ -73,7 +68,6 @@ export default function CreerStoryScreen({ navigation, route }) {
     })
   ).current;
 
-  // GPS au montage
   useEffect(() => {
     if (lieuPrechoisit) { setLocChargement(false); return; }
     (async () => {
@@ -120,7 +114,6 @@ export default function CreerStoryScreen({ navigation, route }) {
     setSuggestions([]);
   };
 
-  // ✅ Ouvre expo-camera — contrôle total du miroir
   const ouvrirCamera = async () => {
     const perm = await requestPermission();
     if (!perm.granted) {
@@ -131,26 +124,24 @@ export default function CreerStoryScreen({ navigation, route }) {
     setShowCamera(true);
   };
 
-  // ✅ Capture avec mirrorImage: false pour corriger le selfie
   const capturer = async () => {
     if (!cameraRef.current) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.85,
         skipProcessing: false,
-        // mirrorImage false = pas de retournement sur caméra frontale
+        // ✅ false = pas de miroir sur selfie
         mirrorImage: false,
       });
       setShowCamera(false);
       mediaRef.current = { uri: photo.uri, type: 'image' };
       setMediaAffiche({ uri: photo.uri, type: 'image' });
       setEtape('edit');
-    } catch (e) {
+    } catch {
       Alert.alert('Erreur', 'Impossible de prendre la photo');
     }
   };
 
-  // Galerie
   const choisirDepuisGalerie = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -163,30 +154,23 @@ export default function CreerStoryScreen({ navigation, route }) {
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      mediaRef.current = asset;
-      setMediaAffiche(asset);
+      mediaRef.current = result.assets[0];
+      setMediaAffiche(result.assets[0]);
       setEtape('edit');
     }
   };
 
-  // Publication
   const publier = async () => {
     const currentMedia = mediaRef.current;
     if (!currentMedia) { Alert.alert('Erreur', 'Aucun média sélectionné'); return; }
-
     const { data: { user: userFrais } } = await supabase.auth.getUser();
-    if (!userFrais) { Alert.alert('Erreur', 'Session expirée, reconnecte-toi'); return; }
-
+    if (!userFrais) { Alert.alert('Erreur', 'Session expirée'); return; }
     setChargement(true);
     try {
       let lat = 48.8566, lon = 2.3522;
       const adresseFinale = adresse.trim() || lieuPrechoisit?.adresse || adresseLocale || '';
-
-      if (coordonnees) {
-        lat = coordonnees.latitude;
-        lon = coordonnees.longitude;
-      } else if (adresseFinale) {
+      if (coordonnees) { lat = coordonnees.latitude; lon = coordonnees.longitude; }
+      else if (adresseFinale) {
         try {
           const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresseFinale + ' Paris')}&format=json&limit=1`;
           const r = await fetch(url, { headers: { 'User-Agent': 'LumaApp/1.0' } });
@@ -198,97 +182,75 @@ export default function CreerStoryScreen({ navigation, route }) {
       const isVideo = currentMedia.type === 'video';
       const ext = isVideo ? 'mp4' : 'jpg';
       const nomFichier = `${userFrais.id}/${Date.now()}.${ext}`;
-
       const formData = new FormData();
-      formData.append('file', {
-        uri: currentMedia.uri,
-        name: `story.${ext}`,
-        type: isVideo ? 'video/mp4' : 'image/jpeg',
-      });
+      formData.append('file', { uri: currentMedia.uri, name: `story.${ext}`, type: isVideo ? 'video/mp4' : 'image/jpeg' });
 
       const { error: uploadError } = await supabase.storage
-        .from('stories')
-        .upload(nomFichier, formData, {
-          contentType: isVideo ? 'video/mp4' : 'image/jpeg',
-          upsert: true,
-        });
-
+        .from('stories').upload(nomFichier, formData, { contentType: isVideo ? 'video/mp4' : 'image/jpeg', upsert: true });
       if (uploadError) { Alert.alert('Erreur upload', uploadError.message); setChargement(false); return; }
 
       const { data: urlData } = supabase.storage.from('stories').getPublicUrl(nomFichier);
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
       const { error: storyError } = await supabase.from('stories').insert({
-        user_id: userFrais.id,
-        type,
-        media_url: urlData.publicUrl,
-        media_type: isVideo ? 'video' : 'image',
-        texte: texte.trim() || null,
-        latitude: lat,
-        longitude: lon,
+        user_id: userFrais.id, type,
+        media_url: urlData.publicUrl, media_type: isVideo ? 'video' : 'image',
+        texte: texte.trim() || null, latitude: lat, longitude: lon,
         adresse: adresseFinale || null,
         lieu_id: lieuPrechoisit?.id || null,
         evenement_id: evenementPrechoisit?.id || null,
-        expires_at: expiresAt,
-        actif: true,
-        nb_vues: 0,
-        nb_likes: 0,
+        expires_at: expiresAt, actif: true, nb_vues: 0, nb_likes: 0,
       });
 
       if (storyError) { Alert.alert('Erreur', storyError.message); setChargement(false); return; }
-
       Alert.alert('Story publiée ! 🎉', 'Ta story est visible pendant 24h', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
-    } catch (e) {
-      Alert.alert('Erreur', String(e?.message || e));
-    }
+    } catch (e) { Alert.alert('Erreur', String(e?.message || e)); }
     setChargement(false);
   };
 
   // ── Vue caméra ────────────────────────────────────────────────────────────
   if (showCamera) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <View style={StyleSheet.absoluteFillObject}>
+        {/* ✅ CameraView sans children — boutons en dehors en position absolute */}
         <CameraView
           ref={cameraRef}
-          style={{ flex: 1 }}
+          style={StyleSheet.absoluteFillObject}
           facing={facingCamera}
           mirror={false}
+        />
+
+        {/* Bouton fermer */}
+        <TouchableOpacity style={styles.camBtn} onPress={() => setShowCamera(false)}>
+          <Ionicons name="close" size={26} color="#fff" />
+        </TouchableOpacity>
+
+        {/* Bouton retourner caméra */}
+        <TouchableOpacity
+          style={[styles.camBtn, { left: undefined, right: 20 }]}
+          onPress={() => setFacingCamera(f => f === 'back' ? 'front' : 'back')}
         >
-          {/* Bouton fermer */}
-          <TouchableOpacity
-            style={styles.camBtn}
-            onPress={() => setShowCamera(false)}
-          >
-            <Ionicons name="close" size={26} color="#fff" />
-          </TouchableOpacity>
+          <Ionicons name="camera-reverse" size={26} color="#fff" />
+        </TouchableOpacity>
 
-          {/* Bouton retourner caméra */}
-          <TouchableOpacity
-            style={[styles.camBtn, { right: 20, left: undefined }]}
-            onPress={() => setFacingCamera(f => f === 'back' ? 'front' : 'back')}
-          >
-            <Ionicons name="camera-reverse" size={26} color="#fff" />
-          </TouchableOpacity>
+        {/* Indicateur */}
+        <View style={styles.camIndicateur}>
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
+            {facingCamera === 'front' ? '🤳 Selfie' : '📷 Arrière'}
+          </Text>
+        </View>
 
-          {/* Indicateur caméra active */}
-          <View style={styles.camIndicateur}>
-            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
-              {facingCamera === 'front' ? '🤳 Selfie' : '📷 Arrière'}
-            </Text>
-          </View>
-
-          {/* Bouton capture */}
-          <TouchableOpacity style={styles.camCapture} onPress={capturer}>
-            <View style={styles.camCaptureInner} />
-          </TouchableOpacity>
-        </CameraView>
+        {/* Bouton capture */}
+        <TouchableOpacity style={styles.camCapture} onPress={capturer}>
+          <View style={styles.camCaptureInner} />
+        </TouchableOpacity>
       </View>
     );
   }
 
-  // ── Étape 1 — Choix ───────────────────────────────────────────────────────
+  // ── Étape 1 ───────────────────────────────────────────────────────────────
   if (etape === 'media') {
     return (
       <View style={styles.container}>
@@ -300,31 +262,18 @@ export default function CreerStoryScreen({ navigation, route }) {
           <View style={{ width: 34 }} />
         </View>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Adresse */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>📍 OÙ ES-TU ?</Text>
-
             {lieuPrechoisit ? (
               <View style={[styles.adresseWrap, { borderColor: '#8B5CF6' }]}>
                 <Ionicons name="location" size={18} color="#8B5CF6" />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>
-                    {lieuPrechoisit.nom}
-                  </Text>
-                  {lieuPrechoisit.adresse && (
-                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>
-                      {lieuPrechoisit.adresse}
-                    </Text>
-                  )}
+                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>{lieuPrechoisit.nom}</Text>
+                  {lieuPrechoisit.adresse && <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>{lieuPrechoisit.adresse}</Text>}
                 </View>
-                <View style={styles.lieuBadge}>
-                  <Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: '700' }}>AUTO</Text>
-                </View>
+                <View style={styles.lieuBadge}><Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: '700' }}>AUTO</Text></View>
               </View>
             ) : (
               <>
@@ -345,7 +294,6 @@ export default function CreerStoryScreen({ navigation, route }) {
                     </TouchableOpacity>
                   )}
                 </View>
-
                 {suggestions.length > 0 && (
                   <View style={styles.suggestionsWrap}>
                     {suggestions.map((s, i) => (
@@ -362,7 +310,6 @@ export default function CreerStoryScreen({ navigation, route }) {
                     ))}
                   </View>
                 )}
-
                 {coordonnees && adresse.trim().length > 0 && suggestions.length === 0 && (
                   <View style={styles.adresseConfirmee}>
                     <Ionicons name="checkmark-circle" size={14} color="#059669" />
@@ -373,31 +320,23 @@ export default function CreerStoryScreen({ navigation, route }) {
             )}
           </View>
 
-          {/* Type */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>TYPE DE STORY</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {TYPES.map(tp => (
                 <TouchableOpacity
                   key={tp.key}
-                  style={[styles.typePill, {
-                    backgroundColor: type === tp.key ? tp.couleur : '#1F2937',
-                    borderColor: type === tp.key ? tp.couleur : '#374151',
-                  }]}
+                  style={[styles.typePill, { backgroundColor: type === tp.key ? tp.couleur : '#1F2937', borderColor: type === tp.key ? tp.couleur : '#374151' }]}
                   onPress={() => setType(tp.key)}
                 >
-                  <Text style={{ color: '#fff', fontSize: t(12), fontWeight: type === tp.key ? '600' : '400' }}>
-                    {tp.label}
-                  </Text>
+                  <Text style={{ color: '#fff', fontSize: t(12), fontWeight: type === tp.key ? '600' : '400' }}>{tp.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          {/* Média — 2 boutons */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>MÉDIA</Text>
-
             <TouchableOpacity style={styles.mediaBtn} onPress={ouvrirCamera}>
               <View style={styles.mediaBtnIcone}>
                 <Ionicons name="camera" size={28} color="#fff" />
@@ -409,10 +348,7 @@ export default function CreerStoryScreen({ navigation, route }) {
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]}
-              onPress={choisirDepuisGalerie}
-            >
+            <TouchableOpacity style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]} onPress={choisirDepuisGalerie}>
               <View style={[styles.mediaBtnIcone, { backgroundColor: '#374151' }]}>
                 <Ionicons name="images" size={28} color="#fff" />
               </View>
@@ -432,18 +368,12 @@ export default function CreerStoryScreen({ navigation, route }) {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       {mediaAffiche && (
-        <Image
-          source={{ uri: mediaAffiche.uri }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="contain"
-        />
+        <Image source={{ uri: mediaAffiche.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
       )}
 
       {texte.length > 0 && !editTexte && (
         <Animated.View
-          style={[styles.texteFlottant, {
-            transform: [{ translateX: textePosX }, { translateY: textePosY }],
-          }]}
+          style={[styles.texteFlottant, { transform: [{ translateX: textePosX }, { translateY: textePosY }] }]}
           {...panResponder.panHandlers}
         >
           <Text style={styles.texteFlottantTexte}>{texte}</Text>
@@ -455,51 +385,33 @@ export default function CreerStoryScreen({ navigation, route }) {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-          <TouchableOpacity
-            style={[styles.editBtn, editTexte && { backgroundColor: '#fff' }]}
-            onPress={() => setEditTexte(v => !v)}
-          >
+          <TouchableOpacity style={[styles.editBtn, editTexte && { backgroundColor: '#fff' }]} onPress={() => setEditTexte(v => !v)}>
             <Ionicons name="text" size={18} color={editTexte ? '#111' : '#fff'} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.publierBtn, { opacity: chargement ? 0.7 : 1 }]}
-            onPress={publier}
-            disabled={chargement}
-          >
+          <TouchableOpacity style={[styles.publierBtn, { opacity: chargement ? 0.7 : 1 }]} onPress={publier} disabled={chargement}>
             {chargement
               ? <ActivityIndicator color="#fff" size="small" />
-              : <>
-                  <Text style={{ color: '#fff', fontSize: t(15), fontWeight: '700' }}>Publier</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#fff" />
-                </>
+              : <><Text style={{ color: '#fff', fontSize: t(15), fontWeight: '700' }}>Publier</Text><Ionicons name="arrow-forward" size={16} color="#fff" /></>
             }
           </TouchableOpacity>
         </View>
       </View>
 
       {editTexte && (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.texteEditWrap}
-        >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.texteEditWrap}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
             <TextInput
               style={styles.texteEditInput}
               placeholder="Écris quelque chose..."
               placeholderTextColor="rgba(255,255,255,0.5)"
-              value={texte}
-              onChangeText={setTexte}
-              maxLength={150}
-              multiline
-              autoFocus
+              value={texte} onChangeText={setTexte}
+              maxLength={150} multiline autoFocus
             />
             <TouchableOpacity style={styles.texteEditOk} onPress={() => setEditTexte(false)}>
               <Text style={{ color: '#fff', fontWeight: '600' }}>OK</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>
-            {texte.length}/150
-          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>{texte.length}/150</Text>
         </KeyboardAvoidingView>
       )}
 
@@ -510,9 +422,7 @@ export default function CreerStoryScreen({ navigation, route }) {
       )}
 
       <View style={[styles.typeBadge, { backgroundColor: TYPES.find(tp => tp.key === type)?.couleur }]}>
-        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
-          {TYPES.find(tp => tp.key === type)?.label}
-        </Text>
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>{TYPES.find(tp => tp.key === type)?.label}</Text>
       </View>
 
       {(adresse.trim().length > 0 || lieuPrechoisit || adresseLocale) && (
@@ -529,126 +439,35 @@ export default function CreerStoryScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 56, paddingBottom: 16,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 16 },
   headerTitre: { color: '#fff', fontSize: 18, fontWeight: '600' },
   section: { paddingHorizontal: 20, paddingBottom: 20 },
   sectionTitre: { color: '#9CA3AF', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 10 },
-  adresseWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#1F2937', borderRadius: 14,
-    padding: 14, borderWidth: 1.5, borderColor: '#374151',
-  },
+  adresseWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#1F2937', borderRadius: 14, padding: 14, borderWidth: 1.5, borderColor: '#374151' },
   adresseInput: { flex: 1, color: '#fff', fontSize: 14, minHeight: 24 },
-  lieuBadge: {
-    backgroundColor: '#8B5CF620', borderRadius: 10,
-    paddingHorizontal: 6, paddingVertical: 2,
-    borderWidth: 1, borderColor: '#8B5CF6',
-  },
-  suggestionsWrap: {
-    backgroundColor: '#1F2937', borderRadius: 12, marginTop: 6,
-    borderWidth: 1, borderColor: '#374151', overflow: 'hidden',
-  },
+  lieuBadge: { backgroundColor: '#8B5CF620', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#8B5CF6' },
+  suggestionsWrap: { backgroundColor: '#1F2937', borderRadius: 12, marginTop: 6, borderWidth: 1, borderColor: '#374151', overflow: 'hidden' },
   suggestionItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12 },
   adresseConfirmee: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 },
   typePill: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
-  mediaBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: '#1a1a1a', borderRadius: 16,
-    padding: 16, borderWidth: 1, borderColor: '#333',
-  },
-  mediaBtnIcone: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: '#2563EB',
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
+  mediaBtn: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#1a1a1a', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#333' },
+  mediaBtnIcone: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   mediaBtnLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
   mediaBtnDesc: { color: '#9CA3AF', fontSize: 12, marginTop: 2 },
-
-  // Caméra
-  camBtn: {
-    position: 'absolute', top: 60, left: 20,
-    padding: 12, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 30,
-  },
-  camIndicateur: {
-    position: 'absolute', top: 70, alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 5,
-  },
-  camCapture: {
-    position: 'absolute', bottom: 60, alignSelf: 'center',
-    width: 76, height: 76, borderRadius: 38,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 3, borderColor: '#fff',
-  },
-  camCaptureInner: {
-    width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff',
-  },
-
-  // Édition
-  headerEdition: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, zIndex: 20,
-  },
-  editBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)',
-  },
-  publierBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#2563EB', borderRadius: 20,
-    paddingHorizontal: 18, paddingVertical: 10,
-  },
-  texteFlottant: {
-    position: 'absolute', zIndex: 15,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
-    maxWidth: W - 40,
-  },
-  texteFlottantTexte: {
-    color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  texteEditWrap: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    padding: 16, paddingBottom: Platform.OS === 'ios' ? 40 : 16,
-  },
-  texteEditInput: {
-    flex: 1, color: '#fff', fontSize: 16,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.3)',
-    paddingVertical: 8, minHeight: 44, maxHeight: 120,
-  },
-  texteEditOk: {
-    backgroundColor: '#2563EB', borderRadius: 20,
-    paddingHorizontal: 16, paddingVertical: 8,
-  },
-  dragHint: {
-    position: 'absolute', bottom: 100, left: 0, right: 0,
-    alignItems: 'center', zIndex: 10,
-  },
-  dragHintTexte: {
-    color: 'rgba(255,255,255,0.7)', fontSize: 13,
-    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20,
-    paddingHorizontal: 14, paddingVertical: 6,
-  },
-  typeBadge: {
-    position: 'absolute', top: 110, left: 16,
-    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, zIndex: 15,
-  },
-  adresseBadge: {
-    position: 'absolute', bottom: 40, left: 16, right: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6, zIndex: 15,
-    justifyContent: 'center',
-  },
+  camBtn: { position: 'absolute', top: 60, left: 20, padding: 12, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 30, zIndex: 10 },
+  camIndicateur: { position: 'absolute', top: 70, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, zIndex: 10 },
+  camCapture: { position: 'absolute', bottom: 60, alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff', zIndex: 10 },
+  camCaptureInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
+  headerEdition: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, zIndex: 20 },
+  editBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)' },
+  publierBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#2563EB', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
+  texteFlottant: { position: 'absolute', zIndex: 15, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, maxWidth: W - 40 },
+  texteFlottantTexte: { color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  texteEditWrap: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20, backgroundColor: 'rgba(0,0,0,0.85)', padding: 16, paddingBottom: Platform.OS === 'ios' ? 40 : 16 },
+  texteEditInput: { flex: 1, color: '#fff', fontSize: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.3)', paddingVertical: 8, minHeight: 44, maxHeight: 120 },
+  texteEditOk: { backgroundColor: '#2563EB', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  dragHint: { position: 'absolute', bottom: 100, left: 0, right: 0, alignItems: 'center', zIndex: 10 },
+  dragHintTexte: { color: 'rgba(255,255,255,0.7)', fontSize: 13, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
+  typeBadge: { position: 'absolute', top: 110, left: 16, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, zIndex: 15 },
+  adresseBadge: { position: 'absolute', bottom: 40, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, zIndex: 15, justifyContent: 'center' },
 });
