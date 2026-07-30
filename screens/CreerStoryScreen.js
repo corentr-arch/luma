@@ -6,7 +6,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import { supabase } from '../supabase';
 import { useApp } from '../AppContext';
@@ -25,11 +24,6 @@ export default function CreerStoryScreen({ navigation, route }) {
 
   const lieuPrechoisit = route.params?.lieu || null;
   const evenementPrechoisit = route.params?.evenement || null;
-
-  const [user, setUser] = useState(null);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user: u } }) => setUser(u));
-  }, []);
 
   const mediaRef = useRef(null);
   const [mediaAffiche, setMediaAffiche] = useState(null);
@@ -79,7 +73,6 @@ export default function CreerStoryScreen({ navigation, route }) {
           const lat = loc.coords.latitude;
           const lon = loc.coords.longitude;
           setCoordonnees({ latitude: lat, longitude: lon });
-
           const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
           const r = await fetch(url, { headers: { 'User-Agent': 'LumaApp/1.0' } });
           const data = await r.json();
@@ -89,9 +82,7 @@ export default function CreerStoryScreen({ navigation, route }) {
             const quartier = data.address.neighbourhood || data.address.suburb || '';
             const adresseTrouvee = [num, rue].filter(Boolean).join(' ') || quartier || 'Paris';
             setAdresseLocale(adresseTrouvee);
-            // Pré-rempli automatiquement si pas de lieu choisi
             setAdresse(adresseTrouvee);
-            setSuggestions([]);
           }
         }
       } catch {}
@@ -117,35 +108,8 @@ export default function CreerStoryScreen({ navigation, route }) {
     setSuggestions([]);
   };
 
-  const utiliserPositionActuelle = () => {
-    if (!adresseLocale) return;
-    setAdresse(adresseLocale);
-    setSuggestions([]);
-  };
-
-  // ✅ FIX MIROIR — retourne l'image horizontalement si prise depuis la caméra frontale
-  const corrigerImage = async (uri, estFrontale = false) => {
-    try {
-      const actions = [];
-      // Retourne horizontalement si caméra frontale (miroir)
-      if (estFrontale) {
-        actions.push({ flip: ImageManipulator.FlipType.Horizontal });
-      }
-      const result = await ImageManipulator.manipulateAsync(
-        uri,
-        actions,
-        { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      return result.uri;
-    } catch { return uri; }
-  };
-
-  const setMedia = (asset) => {
-    mediaRef.current = asset;
-    setMediaAffiche(asset);
-  };
-
-  const prendrePhoto = async () => {
+  // ✅ PAS de flip — iOS gère déjà l'orientation correctement
+  const prendreMedia = async (sourceCamera) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission requise', "Autorise l'accès à ta caméra");
@@ -155,39 +119,12 @@ export default function CreerStoryScreen({ navigation, route }) {
       mediaTypes: ['images', 'videos'],
       allowsEditing: false,
       quality: 0.85,
-      // On laisse l'utilisateur choisir caméra avant/arrière
-      cameraType: ImagePicker.CameraType.back,
+      // Pas de cameraType forcé — l'utilisateur choisit dans l'interface native iOS
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      // Détecte si caméra frontale via les métadonnées expo
-      const estFrontale = asset.exif?.LensMake?.toLowerCase().includes('front')
-        || (asset.width < asset.height && asset.exif?.Orientation === 6);
-      const uri = asset.type !== 'video'
-        ? await corrigerImage(asset.uri, false) // back camera — pas de flip
-        : asset.uri;
-      setMedia({ ...asset, uri });
-      setEtape('edit');
-    }
-  };
-
-  const prendrePhotoFrontale = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission requise', "Autorise l'accès à ta caméra");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      quality: 0.85,
-      cameraType: ImagePicker.CameraType.front,
-    });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      // ✅ Caméra frontale → flip horizontal pour corriger le miroir
-      const uri = await corrigerImage(asset.uri, true);
-      setMedia({ ...asset, uri });
+      mediaRef.current = asset;
+      setMediaAffiche(asset);
       setEtape('edit');
     }
   };
@@ -205,8 +142,8 @@ export default function CreerStoryScreen({ navigation, route }) {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      const uri = asset.type !== 'video' ? await corrigerImage(asset.uri, false) : asset.uri;
-      setMedia({ ...asset, uri });
+      mediaRef.current = asset;
+      setMediaAffiche(asset);
       setEtape('edit');
     }
   };
@@ -217,20 +154,15 @@ export default function CreerStoryScreen({ navigation, route }) {
       Alert.alert('Erreur', 'Aucun média sélectionné');
       return;
     }
-
     const { data: { user: userFrais } } = await supabase.auth.getUser();
     if (!userFrais) {
       Alert.alert('Erreur', 'Session expirée, reconnecte-toi');
       return;
     }
-
     setChargement(true);
-
     try {
-      let lat = 48.8566;
-      let lon = 2.3522;
-      let adresseFinale = adresse.trim() || lieuPrechoisit?.adresse || adresseLocale || '';
-
+      let lat = 48.8566, lon = 2.3522;
+      const adresseFinale = adresse.trim() || lieuPrechoisit?.adresse || adresseLocale || '';
       if (coordonnees) {
         lat = coordonnees.latitude;
         lon = coordonnees.longitude;
@@ -239,17 +171,13 @@ export default function CreerStoryScreen({ navigation, route }) {
           const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresseFinale + ' Paris')}&format=json&limit=1`;
           const r = await fetch(url, { headers: { 'User-Agent': 'LumaApp/1.0' } });
           const data = await r.json();
-          if (data?.[0]) {
-            lat = parseFloat(data[0].lat);
-            lon = parseFloat(data[0].lon);
-          }
+          if (data?.[0]) { lat = parseFloat(data[0].lat); lon = parseFloat(data[0].lon); }
         } catch {}
       }
 
       const isVideo = currentMedia.type === 'video';
       const ext = isVideo ? 'mp4' : 'jpg';
       const nomFichier = `${userFrais.id}/${Date.now()}.${ext}`;
-
       const formData = new FormData();
       formData.append('file', {
         uri: currentMedia.uri,
@@ -264,15 +192,9 @@ export default function CreerStoryScreen({ navigation, route }) {
           upsert: true,
         });
 
-      if (uploadError) {
-        Alert.alert('Erreur upload', uploadError.message);
-        setChargement(false);
-        return;
-      }
+      if (uploadError) { Alert.alert('Erreur upload', uploadError.message); setChargement(false); return; }
 
       const { data: urlData } = supabase.storage.from('stories').getPublicUrl(nomFichier);
-
-      // ✅ Sauvegarde l'adresse + expires_at en base
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
       const { error: storyError } = await supabase.from('stories').insert({
@@ -292,11 +214,7 @@ export default function CreerStoryScreen({ navigation, route }) {
         nb_likes: 0,
       });
 
-      if (storyError) {
-        Alert.alert('Erreur', storyError.message);
-        setChargement(false);
-        return;
-      }
+      if (storyError) { Alert.alert('Erreur', storyError.message); setChargement(false); return; }
 
       Alert.alert('Story publiée ! 🎉', 'Ta story est visible pendant 24h', [
         { text: 'OK', onPress: () => navigation.goBack() }
@@ -307,7 +225,7 @@ export default function CreerStoryScreen({ navigation, route }) {
     setChargement(false);
   };
 
-  // ── Étape 1 — Choix média + infos ─────────────────────────────────────────
+  // ── Étape 1 ───────────────────────────────────────────────────────────────
   if (etape === 'media') {
     return (
       <View style={styles.container}>
@@ -319,26 +237,18 @@ export default function CreerStoryScreen({ navigation, route }) {
           <View style={{ width: 34 }} />
         </View>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
-        >
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+
           {/* Adresse */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>📍 OÙ ES-TU ?</Text>
-
             {lieuPrechoisit ? (
               <View style={[styles.adresseWrap, { borderColor: '#8B5CF6' }]}>
                 <Ionicons name="location" size={18} color="#8B5CF6" />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>
-                    {lieuPrechoisit.nom}
-                  </Text>
+                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>{lieuPrechoisit.nom}</Text>
                   {lieuPrechoisit.adresse && (
-                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>
-                      {lieuPrechoisit.adresse}
-                    </Text>
+                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>{lieuPrechoisit.adresse}</Text>
                   )}
                 </View>
                 <View style={styles.lieuBadge}>
@@ -364,18 +274,6 @@ export default function CreerStoryScreen({ navigation, route }) {
                     </TouchableOpacity>
                   )}
                 </View>
-
-                {/* GPS détecté — bouton rapide */}
-                {!locChargement && adresseLocale && adresse !== adresseLocale && (
-                  <TouchableOpacity style={styles.adresseGPS} onPress={utiliserPositionActuelle}>
-                    <Ionicons name="navigate" size={14} color="#2563EB" />
-                    <Text style={{ color: '#2563EB', fontSize: t(13), flex: 1 }} numberOfLines={1}>
-                      {adresseLocale}
-                    </Text>
-                    <Text style={{ color: '#2563EB', fontSize: t(12), fontWeight: '600' }}>Utiliser ›</Text>
-                  </TouchableOpacity>
-                )}
-
                 {suggestions.length > 0 && (
                   <View style={styles.suggestionsWrap}>
                     {suggestions.map((s, i) => (
@@ -392,7 +290,6 @@ export default function CreerStoryScreen({ navigation, route }) {
                     ))}
                   </View>
                 )}
-
                 {coordonnees && adresse.trim().length > 0 && suggestions.length === 0 && (
                   <View style={styles.adresseConfirmee}>
                     <Ionicons name="checkmark-circle" size={14} color="#059669" />
@@ -424,38 +321,21 @@ export default function CreerStoryScreen({ navigation, route }) {
             </View>
           </View>
 
-          {/* Média */}
+          {/* ✅ Média simplifié — 2 boutons seulement */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>MÉDIA</Text>
 
-            {/* Caméra arrière */}
-            <TouchableOpacity style={styles.mediaBtn} onPress={prendrePhoto}>
+            <TouchableOpacity style={styles.mediaBtn} onPress={prendreMedia}>
               <View style={styles.mediaBtnIcone}>
                 <Ionicons name="camera" size={28} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mediaBtnLabel}>Caméra arrière</Text>
-                <Text style={styles.mediaBtnDesc}>Photo ou vidéo</Text>
+                <Text style={styles.mediaBtnLabel}>Photo / Vidéo</Text>
+                <Text style={styles.mediaBtnDesc}>Ouvre l'appareil photo</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
 
-            {/* Caméra frontale */}
-            <TouchableOpacity
-              style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1a1a2e' }]}
-              onPress={prendrePhotoFrontale}
-            >
-              <View style={[styles.mediaBtnIcone, { backgroundColor: '#7C3AED' }]}>
-                <Ionicons name="camera-reverse" size={28} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mediaBtnLabel}>Caméra frontale</Text>
-                <Text style={styles.mediaBtnDesc}>Selfie — miroir corrigé automatiquement</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
-            </TouchableOpacity>
-
-            {/* Galerie */}
             <TouchableOpacity
               style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]}
               onPress={choisirDepuisGalerie}
@@ -465,7 +345,7 @@ export default function CreerStoryScreen({ navigation, route }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.mediaBtnLabel}>Galerie</Text>
-                <Text style={styles.mediaBtnDesc}>Photo ou vidéo existante</Text>
+                <Text style={styles.mediaBtnDesc}>Choisir une photo ou vidéo existante</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
@@ -488,9 +368,7 @@ export default function CreerStoryScreen({ navigation, route }) {
 
       {texte.length > 0 && !editTexte && (
         <Animated.View
-          style={[styles.texteFlottant, {
-            transform: [{ translateX: textePosX }, { translateY: textePosY }],
-          }]}
+          style={[styles.texteFlottant, { transform: [{ translateX: textePosX }, { translateY: textePosY }] }]}
           {...panResponder.panHandlers}
         >
           <Text style={styles.texteFlottantTexte}>{texte}</Text>
@@ -544,9 +422,7 @@ export default function CreerStoryScreen({ navigation, route }) {
               <Text style={{ color: '#fff', fontWeight: '600' }}>OK</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>
-            {texte.length}/150
-          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>{texte.length}/150</Text>
         </KeyboardAvoidingView>
       )}
 
@@ -556,14 +432,12 @@ export default function CreerStoryScreen({ navigation, route }) {
         </View>
       )}
 
-      {/* Badge type */}
       <View style={[styles.typeBadge, { backgroundColor: TYPES.find(tp => tp.key === type)?.couleur }]}>
         <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
           {TYPES.find(tp => tp.key === type)?.label}
         </Text>
       </View>
 
-      {/* ✅ Badge adresse toujours affiché si disponible */}
       {(adresse.trim().length > 0 || lieuPrechoisit || adresseLocale) && (
         <View style={styles.adresseBadge}>
           <Ionicons name="location" size={11} color="#fff" />
@@ -596,25 +470,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 2,
     borderWidth: 1, borderColor: '#8B5CF6',
   },
-  adresseGPS: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#1E3A5F', borderRadius: 12,
-    padding: 12, marginTop: 8,
-    borderWidth: 1, borderColor: '#2563EB40',
-  },
   suggestionsWrap: {
     backgroundColor: '#1F2937', borderRadius: 12, marginTop: 6,
     borderWidth: 1, borderColor: '#374151', overflow: 'hidden',
   },
-  suggestionItem: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12,
-  },
-  adresseConfirmee: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4,
-  },
-  typePill: {
-    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 20, borderWidth: 1,
-  },
+  suggestionItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12 },
+  adresseConfirmee: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 },
+  typePill: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   mediaBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: '#1a1a1a', borderRadius: 16,
