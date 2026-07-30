@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useEffect } from 'react';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import { supabase } from '../supabase';
 import { useApp } from '../AppContext';
@@ -130,12 +131,24 @@ export default function CreerStoryScreen({ navigation, route }) {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.85,
         skipProcessing: false,
-        // ✅ false = pas de miroir sur selfie
-        mirrorImage: false,
       });
+
+      let uriFinal = photo.uri;
+
+      // ✅ iOS + caméra frontale = pixels inversés par le système
+      // On flippe horizontalement pour corriger
+      if (facingCamera === 'front' && Platform.OS === 'ios') {
+        const resultat = await ImageManipulator.manipulateAsync(
+          photo.uri,
+          [{ flip: ImageManipulator.FlipType.Horizontal }],
+          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        uriFinal = resultat.uri;
+      }
+
       setShowCamera(false);
-      mediaRef.current = { uri: photo.uri, type: 'image' };
-      setMediaAffiche({ uri: photo.uri, type: 'image' });
+      mediaRef.current = { uri: uriFinal, type: 'image' };
+      setMediaAffiche({ uri: uriFinal, type: 'image' });
       setEtape('edit');
     } catch {
       Alert.alert('Erreur', 'Impossible de prendre la photo');
@@ -183,10 +196,18 @@ export default function CreerStoryScreen({ navigation, route }) {
       const ext = isVideo ? 'mp4' : 'jpg';
       const nomFichier = `${userFrais.id}/${Date.now()}.${ext}`;
       const formData = new FormData();
-      formData.append('file', { uri: currentMedia.uri, name: `story.${ext}`, type: isVideo ? 'video/mp4' : 'image/jpeg' });
+      formData.append('file', {
+        uri: currentMedia.uri,
+        name: `story.${ext}`,
+        type: isVideo ? 'video/mp4' : 'image/jpeg',
+      });
 
       const { error: uploadError } = await supabase.storage
-        .from('stories').upload(nomFichier, formData, { contentType: isVideo ? 'video/mp4' : 'image/jpeg', upsert: true });
+        .from('stories')
+        .upload(nomFichier, formData, {
+          contentType: isVideo ? 'video/mp4' : 'image/jpeg',
+          upsert: true,
+        });
       if (uploadError) { Alert.alert('Erreur upload', uploadError.message); setChargement(false); return; }
 
       const { data: urlData } = supabase.storage.from('stories').getPublicUrl(nomFichier);
@@ -194,8 +215,10 @@ export default function CreerStoryScreen({ navigation, route }) {
 
       const { error: storyError } = await supabase.from('stories').insert({
         user_id: userFrais.id, type,
-        media_url: urlData.publicUrl, media_type: isVideo ? 'video' : 'image',
-        texte: texte.trim() || null, latitude: lat, longitude: lon,
+        media_url: urlData.publicUrl,
+        media_type: isVideo ? 'video' : 'image',
+        texte: texte.trim() || null,
+        latitude: lat, longitude: lon,
         adresse: adresseFinale || null,
         lieu_id: lieuPrechoisit?.id || null,
         evenement_id: evenementPrechoisit?.id || null,
@@ -213,21 +236,21 @@ export default function CreerStoryScreen({ navigation, route }) {
   // ── Vue caméra ────────────────────────────────────────────────────────────
   if (showCamera) {
     return (
-      <View style={StyleSheet.absoluteFillObject}>
-        {/* ✅ CameraView sans children — boutons en dehors en position absolute */}
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
         <CameraView
           ref={cameraRef}
           style={StyleSheet.absoluteFillObject}
           facing={facingCamera}
-          mirror={false}
+          mirror={facingCamera === 'front'}
         />
 
-        {/* Bouton fermer */}
-        <TouchableOpacity style={styles.camBtn} onPress={() => setShowCamera(false)}>
+        <TouchableOpacity
+          style={styles.camBtn}
+          onPress={() => setShowCamera(false)}
+        >
           <Ionicons name="close" size={26} color="#fff" />
         </TouchableOpacity>
 
-        {/* Bouton retourner caméra */}
         <TouchableOpacity
           style={[styles.camBtn, { left: undefined, right: 20 }]}
           onPress={() => setFacingCamera(f => f === 'back' ? 'front' : 'back')}
@@ -235,14 +258,12 @@ export default function CreerStoryScreen({ navigation, route }) {
           <Ionicons name="camera-reverse" size={26} color="#fff" />
         </TouchableOpacity>
 
-        {/* Indicateur */}
         <View style={styles.camIndicateur}>
           <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
             {facingCamera === 'front' ? '🤳 Selfie' : '📷 Arrière'}
           </Text>
         </View>
 
-        {/* Bouton capture */}
         <TouchableOpacity style={styles.camCapture} onPress={capturer}>
           <View style={styles.camCaptureInner} />
         </TouchableOpacity>
@@ -262,18 +283,29 @@ export default function CreerStoryScreen({ navigation, route }) {
           <View style={{ width: 34 }} />
         </View>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>📍 OÙ ES-TU ?</Text>
             {lieuPrechoisit ? (
               <View style={[styles.adresseWrap, { borderColor: '#8B5CF6' }]}>
                 <Ionicons name="location" size={18} color="#8B5CF6" />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>{lieuPrechoisit.nom}</Text>
-                  {lieuPrechoisit.adresse && <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>{lieuPrechoisit.adresse}</Text>}
+                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>
+                    {lieuPrechoisit.nom}
+                  </Text>
+                  {lieuPrechoisit.adresse && (
+                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>
+                      {lieuPrechoisit.adresse}
+                    </Text>
+                  )}
                 </View>
-                <View style={styles.lieuBadge}><Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: '700' }}>AUTO</Text></View>
+                <View style={styles.lieuBadge}>
+                  <Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: '700' }}>AUTO</Text>
+                </View>
               </View>
             ) : (
               <>
@@ -326,10 +358,15 @@ export default function CreerStoryScreen({ navigation, route }) {
               {TYPES.map(tp => (
                 <TouchableOpacity
                   key={tp.key}
-                  style={[styles.typePill, { backgroundColor: type === tp.key ? tp.couleur : '#1F2937', borderColor: type === tp.key ? tp.couleur : '#374151' }]}
+                  style={[styles.typePill, {
+                    backgroundColor: type === tp.key ? tp.couleur : '#1F2937',
+                    borderColor: type === tp.key ? tp.couleur : '#374151',
+                  }]}
                   onPress={() => setType(tp.key)}
                 >
-                  <Text style={{ color: '#fff', fontSize: t(12), fontWeight: type === tp.key ? '600' : '400' }}>{tp.label}</Text>
+                  <Text style={{ color: '#fff', fontSize: t(12), fontWeight: type === tp.key ? '600' : '400' }}>
+                    {tp.label}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -348,7 +385,10 @@ export default function CreerStoryScreen({ navigation, route }) {
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]} onPress={choisirDepuisGalerie}>
+            <TouchableOpacity
+              style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]}
+              onPress={choisirDepuisGalerie}
+            >
               <View style={[styles.mediaBtnIcone, { backgroundColor: '#374151' }]}>
                 <Ionicons name="images" size={28} color="#fff" />
               </View>
@@ -368,12 +408,18 @@ export default function CreerStoryScreen({ navigation, route }) {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       {mediaAffiche && (
-        <Image source={{ uri: mediaAffiche.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+        <Image
+          source={{ uri: mediaAffiche.uri }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="contain"
+        />
       )}
 
       {texte.length > 0 && !editTexte && (
         <Animated.View
-          style={[styles.texteFlottant, { transform: [{ translateX: textePosX }, { translateY: textePosY }] }]}
+          style={[styles.texteFlottant, {
+            transform: [{ translateX: textePosX }, { translateY: textePosY }],
+          }]}
           {...panResponder.panHandlers}
         >
           <Text style={styles.texteFlottantTexte}>{texte}</Text>
@@ -385,33 +431,51 @@ export default function CreerStoryScreen({ navigation, route }) {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-          <TouchableOpacity style={[styles.editBtn, editTexte && { backgroundColor: '#fff' }]} onPress={() => setEditTexte(v => !v)}>
+          <TouchableOpacity
+            style={[styles.editBtn, editTexte && { backgroundColor: '#fff' }]}
+            onPress={() => setEditTexte(v => !v)}
+          >
             <Ionicons name="text" size={18} color={editTexte ? '#111' : '#fff'} />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.publierBtn, { opacity: chargement ? 0.7 : 1 }]} onPress={publier} disabled={chargement}>
+          <TouchableOpacity
+            style={[styles.publierBtn, { opacity: chargement ? 0.7 : 1 }]}
+            onPress={publier}
+            disabled={chargement}
+          >
             {chargement
               ? <ActivityIndicator color="#fff" size="small" />
-              : <><Text style={{ color: '#fff', fontSize: t(15), fontWeight: '700' }}>Publier</Text><Ionicons name="arrow-forward" size={16} color="#fff" /></>
+              : <>
+                  <Text style={{ color: '#fff', fontSize: t(15), fontWeight: '700' }}>Publier</Text>
+                  <Ionicons name="arrow-forward" size={16} color="#fff" />
+                </>
             }
           </TouchableOpacity>
         </View>
       </View>
 
       {editTexte && (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.texteEditWrap}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.texteEditWrap}
+        >
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
             <TextInput
               style={styles.texteEditInput}
               placeholder="Écris quelque chose..."
               placeholderTextColor="rgba(255,255,255,0.5)"
-              value={texte} onChangeText={setTexte}
-              maxLength={150} multiline autoFocus
+              value={texte}
+              onChangeText={setTexte}
+              maxLength={150}
+              multiline
+              autoFocus
             />
             <TouchableOpacity style={styles.texteEditOk} onPress={() => setEditTexte(false)}>
               <Text style={{ color: '#fff', fontWeight: '600' }}>OK</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>{texte.length}/150</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>
+            {texte.length}/150
+          </Text>
         </KeyboardAvoidingView>
       )}
 
@@ -422,7 +486,9 @@ export default function CreerStoryScreen({ navigation, route }) {
       )}
 
       <View style={[styles.typeBadge, { backgroundColor: TYPES.find(tp => tp.key === type)?.couleur }]}>
-        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>{TYPES.find(tp => tp.key === type)?.label}</Text>
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
+          {TYPES.find(tp => tp.key === type)?.label}
+        </Text>
       </View>
 
       {(adresse.trim().length > 0 || lieuPrechoisit || adresseLocale) && (

@@ -29,21 +29,15 @@ export default function MessagerieScreen({ navigation }) {
     if (!profil?.id) return;
     setChargement(true);
     try {
-      // Récupère les IDs des conversations dont l'user est membre
       const { data: memberships } = await supabase
         .from('conversation_membres')
         .select('conversation_id')
         .eq('user_id', profil.id);
 
-      if (!memberships?.length) {
-        setConversations([]);
-        setChargement(false);
-        return;
-      }
+      if (!memberships?.length) { setConversations([]); setChargement(false); return; }
 
       const convIds = memberships.map(m => m.conversation_id);
 
-      // Récupère les conversations
       const { data: convs } = await supabase
         .from('conversations')
         .select('id, created_at, updated_at')
@@ -53,7 +47,6 @@ export default function MessagerieScreen({ navigation }) {
 
       if (!convs) { setConversations([]); setChargement(false); return; }
 
-      // Pour chaque conversation, récupère les membres et le dernier message
       const convsCompletes = await Promise.all(convs.map(async (conv) => {
         const { data: membres } = await supabase
           .from('conversation_membres')
@@ -71,17 +64,11 @@ export default function MessagerieScreen({ navigation }) {
           .filter(m => m.user_id !== profil.id)
           .map(m => m.profiles);
 
-        return {
-          ...conv,
-          autresMembres,
-          dernierMessage: msgs?.[0] || null,
-        };
+        return { ...conv, autresMembres, dernierMessage: msgs?.[0] || null };
       }));
 
       setConversations(convsCompletes);
-    } catch (e) {
-      console.error('Erreur chargement conversations:', e);
-    }
+    } catch (e) { console.error('Erreur conversations:', e); }
     setChargement(false);
   };
 
@@ -105,10 +92,9 @@ export default function MessagerieScreen({ navigation }) {
     return () => clearTimeout(timer);
   }, [rechercheUser]);
 
-  const creerOuOuvrirConversation = async (autreUserId) => {
+  const creerOuOuvrirConversation = async (autreUserId, autreProfile) => {
     if (!profil?.id) return;
     try {
-      // Cherche les conversations communes
       const { data: mesMembres } = await supabase
         .from('conversation_membres')
         .select('conversation_id')
@@ -124,21 +110,21 @@ export default function MessagerieScreen({ navigation }) {
 
       if (convCommune) {
         fermerModal();
-        navigation.navigate('Conversation', { conversationId: convCommune.conversation_id });
+        // ✅ convId — correspond à ce qu'attend ConversationScreen
+        navigation.navigate('Conversation', {
+          convId: convCommune.conversation_id,
+          interlocuteur: autreProfile,
+        });
         return;
       }
 
-      // Crée une nouvelle conversation
       const { data: nouvelleConv, error } = await supabase
         .from('conversations')
         .insert({ type: 'direct' })
         .select()
         .single();
 
-      if (error || !nouvelleConv) {
-        console.error('Erreur création conv:', error);
-        return;
-      }
+      if (error || !nouvelleConv) return;
 
       await supabase.from('conversation_membres').insert([
         { conversation_id: nouvelleConv.id, user_id: profil.id },
@@ -146,10 +132,12 @@ export default function MessagerieScreen({ navigation }) {
       ]);
 
       fermerModal();
-      navigation.navigate('Conversation', { conversationId: nouvelleConv.id });
-    } catch (e) {
-      console.error('Erreur:', e);
-    }
+      // ✅ convId
+      navigation.navigate('Conversation', {
+        convId: nouvelleConv.id,
+        interlocuteur: autreProfile,
+      });
+    } catch (e) { console.error('Erreur:', e); }
   };
 
   const formatTemps = (dateStr) => {
@@ -207,9 +195,7 @@ export default function MessagerieScreen({ navigation }) {
       </View>
 
       {chargement ? (
-        <View style={styles.vide}>
-          <ActivityIndicator color="#2563EB" />
-        </View>
+        <View style={styles.vide}><ActivityIndicator color="#2563EB" /></View>
       ) : convsFiltrees.length === 0 ? (
         <View style={styles.vide}>
           <Ionicons name="chatbubbles-outline" size={48} color={theme.text3} />
@@ -236,7 +222,10 @@ export default function MessagerieScreen({ navigation }) {
             return (
               <TouchableOpacity
                 style={[styles.convItem, { borderBottomColor: theme.border }]}
-                onPress={() => navigation.navigate('Conversation', { conversationId: item.id })}
+                onPress={() => navigation.navigate('Conversation', {
+                  convId: item.id,
+                  interlocuteur: autre,
+                })}
                 activeOpacity={0.7}
               >
                 {autre?.avatar_url ? (
@@ -317,7 +306,7 @@ export default function MessagerieScreen({ navigation }) {
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[styles.userItem, { borderBottomColor: theme.border }]}
-                    onPress={() => creerOuOuvrirConversation(item.id)}
+                    onPress={() => creerOuOuvrirConversation(item.id, item)}
                   >
                     {item.avatar_url ? (
                       <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
@@ -329,12 +318,8 @@ export default function MessagerieScreen({ navigation }) {
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>
-                        {item.prenom}
-                      </Text>
-                      {item.handle && (
-                        <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>
-                      )}
+                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>{item.prenom}</Text>
+                      {item.handle && <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>}
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={theme.text3} />
                   </TouchableOpacity>
@@ -343,9 +328,7 @@ export default function MessagerieScreen({ navigation }) {
             ) : rechercheUser.length >= 2 ? (
               <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                 <Ionicons name="person-outline" size={32} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>
-                  Aucun utilisateur trouvé
-                </Text>
+                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>Aucun utilisateur trouvé</Text>
               </View>
             ) : (
               <View style={{ alignItems: 'center', paddingVertical: 24 }}>
@@ -365,50 +348,20 @@ export default function MessagerieScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: 16, paddingTop: 56, borderBottomWidth: 0.5,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, paddingTop: 56, borderBottomWidth: 0.5 },
   titre: { fontWeight: '600' },
-  nouveauBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8,
-  },
-  searchWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderRadius: 12, padding: 10, borderWidth: 0.5,
-  },
+  nouveauBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, padding: 10, borderWidth: 0.5 },
   searchInput: { flex: 1 },
   vide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 32 },
-  nouveauBtnVide: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 12,
-  },
-  convItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, paddingHorizontal: 16, borderBottomWidth: 0.5,
-  },
+  nouveauBtnVide: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 12 },
+  convItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingHorizontal: 16, borderBottomWidth: 0.5 },
   convAvatar: { width: 50, height: 50, borderRadius: 25, flexShrink: 0 },
   avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: { backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
-  modalOverlay: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100,
-  },
-  modal: {
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 20, paddingTop: 12,
-  },
-  modalHandle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: 16,
-  },
-  modalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  userItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 0.5,
-  },
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100 },
+  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 12 },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: 16 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  userItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5 },
 });
