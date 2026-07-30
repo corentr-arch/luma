@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useEffect } from 'react';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { supabase } from '../supabase';
@@ -25,8 +26,17 @@ export default function CreerStoryScreen({ navigation, route }) {
   const lieuPrechoisit = route.params?.lieu || null;
   const evenementPrechoisit = route.params?.evenement || null;
 
+  // Camera
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [facingCamera, setFacingCamera] = useState('back');
+
+  // Media
   const mediaRef = useRef(null);
   const [mediaAffiche, setMediaAffiche] = useState(null);
+
+  // Story
   const [texte, setTexte] = useState('');
   const [type, setType] = useState(
     lieuPrechoisit ? 'lieu' : evenementPrechoisit ? 'evenement' : 'spot'
@@ -46,6 +56,7 @@ export default function CreerStoryScreen({ navigation, route }) {
   const [etape, setEtape] = useState('media');
   const [editTexte, setEditTexte] = useState(false);
 
+  // Texte draggable
   const textePosX = useRef(new Animated.Value(W / 2 - 100)).current;
   const textePosY = useRef(new Animated.Value(H * 0.35)).current;
   const panResponder = useRef(
@@ -62,6 +73,7 @@ export default function CreerStoryScreen({ navigation, route }) {
     })
   ).current;
 
+  // GPS au montage
   useEffect(() => {
     if (lieuPrechoisit) { setLocChargement(false); return; }
     (async () => {
@@ -108,27 +120,37 @@ export default function CreerStoryScreen({ navigation, route }) {
     setSuggestions([]);
   };
 
-  // ✅ PAS de flip — iOS gère déjà l'orientation correctement
-  const prendreMedia = async (sourceCamera) => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission requise', "Autorise l'accès à ta caméra");
+  // ✅ Ouvre expo-camera — contrôle total du miroir
+  const ouvrirCamera = async () => {
+    const perm = await requestPermission();
+    if (!perm.granted) {
+      Alert.alert('Permission requise', "Autorise l'accès à ta caméra dans les réglages");
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images', 'videos'],
-      allowsEditing: false,
-      quality: 0.85,
-      // Pas de cameraType forcé — l'utilisateur choisit dans l'interface native iOS
-    });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      mediaRef.current = asset;
-      setMediaAffiche(asset);
+    setFacingCamera('back');
+    setShowCamera(true);
+  };
+
+  // ✅ Capture avec mirrorImage: false pour corriger le selfie
+  const capturer = async () => {
+    if (!cameraRef.current) return;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.85,
+        skipProcessing: false,
+        // mirrorImage false = pas de retournement sur caméra frontale
+        mirrorImage: false,
+      });
+      setShowCamera(false);
+      mediaRef.current = { uri: photo.uri, type: 'image' };
+      setMediaAffiche({ uri: photo.uri, type: 'image' });
       setEtape('edit');
+    } catch (e) {
+      Alert.alert('Erreur', 'Impossible de prendre la photo');
     }
   };
 
+  // Galerie
   const choisirDepuisGalerie = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -148,21 +170,19 @@ export default function CreerStoryScreen({ navigation, route }) {
     }
   };
 
+  // Publication
   const publier = async () => {
     const currentMedia = mediaRef.current;
-    if (!currentMedia) {
-      Alert.alert('Erreur', 'Aucun média sélectionné');
-      return;
-    }
+    if (!currentMedia) { Alert.alert('Erreur', 'Aucun média sélectionné'); return; }
+
     const { data: { user: userFrais } } = await supabase.auth.getUser();
-    if (!userFrais) {
-      Alert.alert('Erreur', 'Session expirée, reconnecte-toi');
-      return;
-    }
+    if (!userFrais) { Alert.alert('Erreur', 'Session expirée, reconnecte-toi'); return; }
+
     setChargement(true);
     try {
       let lat = 48.8566, lon = 2.3522;
       const adresseFinale = adresse.trim() || lieuPrechoisit?.adresse || adresseLocale || '';
+
       if (coordonnees) {
         lat = coordonnees.latitude;
         lon = coordonnees.longitude;
@@ -178,6 +198,7 @@ export default function CreerStoryScreen({ navigation, route }) {
       const isVideo = currentMedia.type === 'video';
       const ext = isVideo ? 'mp4' : 'jpg';
       const nomFichier = `${userFrais.id}/${Date.now()}.${ext}`;
+
       const formData = new FormData();
       formData.append('file', {
         uri: currentMedia.uri,
@@ -225,7 +246,49 @@ export default function CreerStoryScreen({ navigation, route }) {
     setChargement(false);
   };
 
-  // ── Étape 1 ───────────────────────────────────────────────────────────────
+  // ── Vue caméra ────────────────────────────────────────────────────────────
+  if (showCamera) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <CameraView
+          ref={cameraRef}
+          style={{ flex: 1 }}
+          facing={facingCamera}
+          mirror={false}
+        >
+          {/* Bouton fermer */}
+          <TouchableOpacity
+            style={styles.camBtn}
+            onPress={() => setShowCamera(false)}
+          >
+            <Ionicons name="close" size={26} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Bouton retourner caméra */}
+          <TouchableOpacity
+            style={[styles.camBtn, { right: 20, left: undefined }]}
+            onPress={() => setFacingCamera(f => f === 'back' ? 'front' : 'back')}
+          >
+            <Ionicons name="camera-reverse" size={26} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Indicateur caméra active */}
+          <View style={styles.camIndicateur}>
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
+              {facingCamera === 'front' ? '🤳 Selfie' : '📷 Arrière'}
+            </Text>
+          </View>
+
+          {/* Bouton capture */}
+          <TouchableOpacity style={styles.camCapture} onPress={capturer}>
+            <View style={styles.camCaptureInner} />
+          </TouchableOpacity>
+        </CameraView>
+      </View>
+    );
+  }
+
+  // ── Étape 1 — Choix ───────────────────────────────────────────────────────
   if (etape === 'media') {
     return (
       <View style={styles.container}>
@@ -237,18 +300,26 @@ export default function CreerStoryScreen({ navigation, route }) {
           <View style={{ width: 34 }} />
         </View>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Adresse */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>📍 OÙ ES-TU ?</Text>
+
             {lieuPrechoisit ? (
               <View style={[styles.adresseWrap, { borderColor: '#8B5CF6' }]}>
                 <Ionicons name="location" size={18} color="#8B5CF6" />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>{lieuPrechoisit.nom}</Text>
+                  <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>
+                    {lieuPrechoisit.nom}
+                  </Text>
                   {lieuPrechoisit.adresse && (
-                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>{lieuPrechoisit.adresse}</Text>
+                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>
+                      {lieuPrechoisit.adresse}
+                    </Text>
                   )}
                 </View>
                 <View style={styles.lieuBadge}>
@@ -274,6 +345,7 @@ export default function CreerStoryScreen({ navigation, route }) {
                     </TouchableOpacity>
                   )}
                 </View>
+
                 {suggestions.length > 0 && (
                   <View style={styles.suggestionsWrap}>
                     {suggestions.map((s, i) => (
@@ -290,6 +362,7 @@ export default function CreerStoryScreen({ navigation, route }) {
                     ))}
                   </View>
                 )}
+
                 {coordonnees && adresse.trim().length > 0 && suggestions.length === 0 && (
                   <View style={styles.adresseConfirmee}>
                     <Ionicons name="checkmark-circle" size={14} color="#059669" />
@@ -321,17 +394,17 @@ export default function CreerStoryScreen({ navigation, route }) {
             </View>
           </View>
 
-          {/* ✅ Média simplifié — 2 boutons seulement */}
+          {/* Média — 2 boutons */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>MÉDIA</Text>
 
-            <TouchableOpacity style={styles.mediaBtn} onPress={prendreMedia}>
+            <TouchableOpacity style={styles.mediaBtn} onPress={ouvrirCamera}>
               <View style={styles.mediaBtnIcone}>
                 <Ionicons name="camera" size={28} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.mediaBtnLabel}>Photo / Vidéo</Text>
-                <Text style={styles.mediaBtnDesc}>Ouvre l'appareil photo</Text>
+                <Text style={styles.mediaBtnDesc}>Prendre avec la caméra</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
@@ -345,7 +418,7 @@ export default function CreerStoryScreen({ navigation, route }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.mediaBtnLabel}>Galerie</Text>
-                <Text style={styles.mediaBtnDesc}>Choisir une photo ou vidéo existante</Text>
+                <Text style={styles.mediaBtnDesc}>Choisir une photo ou vidéo</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
@@ -368,7 +441,9 @@ export default function CreerStoryScreen({ navigation, route }) {
 
       {texte.length > 0 && !editTexte && (
         <Animated.View
-          style={[styles.texteFlottant, { transform: [{ translateX: textePosX }, { translateY: textePosY }] }]}
+          style={[styles.texteFlottant, {
+            transform: [{ translateX: textePosX }, { translateY: textePosY }],
+          }]}
           {...panResponder.panHandlers}
         >
           <Text style={styles.texteFlottantTexte}>{texte}</Text>
@@ -422,7 +497,9 @@ export default function CreerStoryScreen({ navigation, route }) {
               <Text style={{ color: '#fff', fontWeight: '600' }}>OK</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>{texte.length}/150</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>
+            {texte.length}/150
+          </Text>
         </KeyboardAvoidingView>
       )}
 
@@ -489,6 +566,29 @@ const styles = StyleSheet.create({
   },
   mediaBtnLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
   mediaBtnDesc: { color: '#9CA3AF', fontSize: 12, marginTop: 2 },
+
+  // Caméra
+  camBtn: {
+    position: 'absolute', top: 60, left: 20,
+    padding: 12, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 30,
+  },
+  camIndicateur: {
+    position: 'absolute', top: 70, alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 5,
+  },
+  camCapture: {
+    position: 'absolute', bottom: 60, alignSelf: 'center',
+    width: 76, height: 76, borderRadius: 38,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 3, borderColor: '#fff',
+  },
+  camCaptureInner: {
+    width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff',
+  },
+
+  // Édition
   headerEdition: {
     position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

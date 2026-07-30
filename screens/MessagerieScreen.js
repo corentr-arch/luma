@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, Image, ActivityIndicator,
+  TextInput, Image, ActivityIndicator, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useCallback } from 'react';
@@ -78,7 +78,6 @@ export default function MessagerieScreen({ navigation }) {
   const creerOuOuvrirConversation = async (autreUserId) => {
     if (!profil?.id) return;
     try {
-      // Cherche si une conversation existe déjà
       const { data: existantes } = await supabase
         .from('conversation_membres')
         .select('conversation_id')
@@ -99,7 +98,6 @@ export default function MessagerieScreen({ navigation }) {
         return;
       }
 
-      // Crée une nouvelle conversation
       const { data: nouvelleConv } = await supabase
         .from('conversations')
         .insert({})
@@ -139,6 +137,12 @@ export default function MessagerieScreen({ navigation }) {
     )
   );
 
+  const fermerModal = () => {
+    setShowNouvelleConv(false);
+    setRechercheUser('');
+    setUtilisateurs([]);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       {/* Header */}
@@ -152,88 +156,6 @@ export default function MessagerieScreen({ navigation }) {
           <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Nouveau</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Modal nouvelle conversation */}
-      {showNouvelleConv && (
-        <View style={[styles.modalOverlay]}>
-          <View style={[styles.modal, { backgroundColor: theme.card }]}>
-            <View style={styles.modalHeader}>
-              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>
-                Nouvelle conversation
-              </Text>
-              <TouchableOpacity onPress={() => { setShowNouvelleConv(false); setRechercheUser(''); }}>
-                <Ionicons name="close" size={22} color={theme.text3} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.searchWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
-              <Ionicons name="search-outline" size={15} color={theme.text3} />
-              <TextInput
-                style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
-                placeholder="Cherche un utilisateur..."
-                placeholderTextColor={theme.text3}
-                value={rechercheUser}
-                onChangeText={setRechercheUser}
-                autoFocus
-              />
-              {rechercheUser.length > 0 && (
-                <TouchableOpacity onPress={() => { setRechercheUser(''); setUtilisateurs([]); }}>
-                  <Ionicons name="close-circle" size={16} color={theme.text3} />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {chargementUsers ? (
-              <ActivityIndicator style={{ marginTop: 20 }} color="#2563EB" />
-            ) : utilisateurs.length > 0 ? (
-              <FlatList
-                data={utilisateurs}
-                keyExtractor={item => item.id}
-                style={{ maxHeight: 300 }}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.userItem, { borderBottomColor: theme.border }]}
-                    onPress={() => creerOuOuvrirConversation(item.id)}
-                  >
-                    {item.avatar_url ? (
-                      <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-                    ) : (
-                      <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                        <Text style={styles.avatarInitiale}>
-                          {(item.prenom || '?')[0].toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>
-                        {item.prenom}
-                      </Text>
-                      {item.handle && (
-                        <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>
-                      )}
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={theme.text3} />
-                  </TouchableOpacity>
-                )}
-              />
-            ) : rechercheUser.length >= 2 ? (
-              <View style={{ alignItems: 'center', padding: 24 }}>
-                <Ionicons name="person-outline" size={32} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>
-                  Aucun utilisateur trouvé
-                </Text>
-              </View>
-            ) : (
-              <View style={{ alignItems: 'center', padding: 24 }}>
-                <Ionicons name="people-outline" size={32} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 8, textAlign: 'center' }}>
-                  Tape le prénom ou le @handle d'un utilisateur
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-      )}
 
       {/* Barre de recherche */}
       <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border, margin: 12, marginBottom: 6 }]}>
@@ -264,7 +186,7 @@ export default function MessagerieScreen({ navigation }) {
             {recherche ? 'Aucune conversation trouvée' : 'Aucun message'}
           </Text>
           <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 6, textAlign: 'center' }}>
-            {!recherche && 'Démarre une conversation avec quelqu\'un !'}
+            {!recherche && "Démarre une conversation avec quelqu'un !"}
           </Text>
           {!recherche && (
             <TouchableOpacity
@@ -272,9 +194,7 @@ export default function MessagerieScreen({ navigation }) {
               onPress={() => { setShowNouvelleConv(true); setRechercheUser(''); setUtilisateurs([]); }}
             >
               <Ionicons name="create-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(14), fontWeight: '500' }}>
-                Nouvelle conversation
-              </Text>
+              <Text style={{ color: '#fff', fontSize: t(14), fontWeight: '500' }}>Nouvelle conversation</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -314,7 +234,7 @@ export default function MessagerieScreen({ navigation }) {
                   <Text style={{ color: theme.text3, fontSize: t(13) }} numberOfLines={1}>
                     {dernierMsg
                       ? (dernierMsg.user_id === profil?.id ? 'Toi : ' : '') + dernierMsg.contenu
-                      : 'Démarre la conversation !'}
+                      : "Démarre la conversation !"}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -322,6 +242,105 @@ export default function MessagerieScreen({ navigation }) {
           }}
           contentContainerStyle={{ paddingBottom: 20 }}
         />
+      )}
+
+      {/* ✅ Modal nouvelle conversation avec KeyboardAvoidingView */}
+      {showNouvelleConv && (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          {/* Zone transparente pour fermer */}
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={fermerModal}
+          />
+
+          {/* Contenu du modal */}
+          <View style={[styles.modal, { backgroundColor: theme.card }]}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeader}>
+              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>
+                Nouvelle conversation
+              </Text>
+              <TouchableOpacity onPress={fermerModal}>
+                <Ionicons name="close" size={22} color={theme.text3} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.searchWrap, { backgroundColor: theme.bg, borderColor: theme.border, margin: 0, marginBottom: 8 }]}>
+              <Ionicons name="search-outline" size={15} color={theme.text3} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
+                placeholder="Cherche par prénom ou @handle..."
+                placeholderTextColor={theme.text3}
+                value={rechercheUser}
+                onChangeText={setRechercheUser}
+                autoFocus
+              />
+              {rechercheUser.length > 0 && (
+                <TouchableOpacity onPress={() => { setRechercheUser(''); setUtilisateurs([]); }}>
+                  <Ionicons name="close-circle" size={15} color={theme.text3} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {chargementUsers ? (
+              <ActivityIndicator style={{ marginVertical: 20 }} color="#2563EB" />
+            ) : utilisateurs.length > 0 ? (
+              <FlatList
+                data={utilisateurs}
+                keyExtractor={item => item.id}
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: 280 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.userItem, { borderBottomColor: theme.border }]}
+                    onPress={() => creerOuOuvrirConversation(item.id)}
+                  >
+                    {item.avatar_url ? (
+                      <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+                    ) : (
+                      <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                        <Text style={styles.avatarInitiale}>
+                          {(item.prenom || '?')[0].toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>
+                        {item.prenom}
+                      </Text>
+                      {item.handle && (
+                        <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={theme.text3} />
+                  </TouchableOpacity>
+                )}
+              />
+            ) : rechercheUser.length >= 2 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                <Ionicons name="person-outline" size={32} color={theme.text3} />
+                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>
+                  Aucun utilisateur trouvé
+                </Text>
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                <Ionicons name="people-outline" size={32} color={theme.text3} />
+                <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+                  Tape le prénom ou le @handle{'\n'}d'un utilisateur Luma
+                </Text>
+              </View>
+            )}
+
+            {/* Padding bas pour iOS */}
+            <View style={{ height: Platform.OS === 'ios' ? 8 : 16 }} />
+          </View>
+        </KeyboardAvoidingView>
       )}
     </View>
   );
@@ -359,11 +378,14 @@ const styles = StyleSheet.create({
   modalOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100,
-    justifyContent: 'flex-end',
   },
   modal: {
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 20, paddingBottom: 40, maxHeight: '80%',
+    padding: 20, paddingTop: 12,
+  },
+  modalHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: 16,
   },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
