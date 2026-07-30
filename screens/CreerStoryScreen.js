@@ -26,7 +26,6 @@ export default function CreerStoryScreen({ navigation, route }) {
   const lieuPrechoisit = route.params?.lieu || null;
   const evenementPrechoisit = route.params?.evenement || null;
 
-  // User depuis Supabase directement
   const [user, setUser] = useState(null);
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user: u } }) => setUser(u));
@@ -69,7 +68,6 @@ export default function CreerStoryScreen({ navigation, route }) {
     })
   ).current;
 
-  // Localisation GPS + géocodage inverse au montage
   useEffect(() => {
     if (lieuPrechoisit) { setLocChargement(false); return; }
     (async () => {
@@ -91,6 +89,9 @@ export default function CreerStoryScreen({ navigation, route }) {
             const quartier = data.address.neighbourhood || data.address.suburb || '';
             const adresseTrouvee = [num, rue].filter(Boolean).join(' ') || quartier || 'Paris';
             setAdresseLocale(adresseTrouvee);
+            // Pré-rempli automatiquement si pas de lieu choisi
+            setAdresse(adresseTrouvee);
+            setSuggestions([]);
           }
         }
       } catch {}
@@ -122,10 +123,17 @@ export default function CreerStoryScreen({ navigation, route }) {
     setSuggestions([]);
   };
 
-  const corrigerImage = async (uri) => {
+  // ✅ FIX MIROIR — retourne l'image horizontalement si prise depuis la caméra frontale
+  const corrigerImage = async (uri, estFrontale = false) => {
     try {
+      const actions = [];
+      // Retourne horizontalement si caméra frontale (miroir)
+      if (estFrontale) {
+        actions.push({ flip: ImageManipulator.FlipType.Horizontal });
+      }
       const result = await ImageManipulator.manipulateAsync(
-        uri, [],
+        uri,
+        actions,
         { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
       );
       return result.uri;
@@ -147,11 +155,38 @@ export default function CreerStoryScreen({ navigation, route }) {
       mediaTypes: ['images', 'videos'],
       allowsEditing: false,
       quality: 0.85,
+      // On laisse l'utilisateur choisir caméra avant/arrière
       cameraType: ImagePicker.CameraType.back,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      const uri = asset.type !== 'video' ? await corrigerImage(asset.uri) : asset.uri;
+      // Détecte si caméra frontale via les métadonnées expo
+      const estFrontale = asset.exif?.LensMake?.toLowerCase().includes('front')
+        || (asset.width < asset.height && asset.exif?.Orientation === 6);
+      const uri = asset.type !== 'video'
+        ? await corrigerImage(asset.uri, false) // back camera — pas de flip
+        : asset.uri;
+      setMedia({ ...asset, uri });
+      setEtape('edit');
+    }
+  };
+
+  const prendrePhotoFrontale = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission requise', "Autorise l'accès à ta caméra");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.85,
+      cameraType: ImagePicker.CameraType.front,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      // ✅ Caméra frontale → flip horizontal pour corriger le miroir
+      const uri = await corrigerImage(asset.uri, true);
       setMedia({ ...asset, uri });
       setEtape('edit');
     }
@@ -170,7 +205,7 @@ export default function CreerStoryScreen({ navigation, route }) {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      const uri = asset.type !== 'video' ? await corrigerImage(asset.uri) : asset.uri;
+      const uri = asset.type !== 'video' ? await corrigerImage(asset.uri, false) : asset.uri;
       setMedia({ ...asset, uri });
       setEtape('edit');
     }
@@ -178,21 +213,14 @@ export default function CreerStoryScreen({ navigation, route }) {
 
   const publier = async () => {
     const currentMedia = mediaRef.current;
-
     if (!currentMedia) {
       Alert.alert('Erreur', 'Aucun média sélectionné');
       return;
     }
 
-    // Récupère user frais depuis Supabase
     const { data: { user: userFrais } } = await supabase.auth.getUser();
     if (!userFrais) {
       Alert.alert('Erreur', 'Session expirée, reconnecte-toi');
-      return;
-    }
-
-    if (!adresse.trim() && !lieuPrechoisit) {
-      Alert.alert('Adresse requise', 'Entre une adresse pour situer ta story');
       return;
     }
 
@@ -201,13 +229,14 @@ export default function CreerStoryScreen({ navigation, route }) {
     try {
       let lat = 48.8566;
       let lon = 2.3522;
+      let adresseFinale = adresse.trim() || lieuPrechoisit?.adresse || adresseLocale || '';
 
       if (coordonnees) {
         lat = coordonnees.latitude;
         lon = coordonnees.longitude;
-      } else if (adresse.trim()) {
+      } else if (adresseFinale) {
         try {
-          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresse + ' Paris')}&format=json&limit=1`;
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresseFinale + ' Paris')}&format=json&limit=1`;
           const r = await fetch(url, { headers: { 'User-Agent': 'LumaApp/1.0' } });
           const data = await r.json();
           if (data?.[0]) {
@@ -243,6 +272,9 @@ export default function CreerStoryScreen({ navigation, route }) {
 
       const { data: urlData } = supabase.storage.from('stories').getPublicUrl(nomFichier);
 
+      // ✅ Sauvegarde l'adresse + expires_at en base
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
       const { error: storyError } = await supabase.from('stories').insert({
         user_id: userFrais.id,
         type,
@@ -251,8 +283,13 @@ export default function CreerStoryScreen({ navigation, route }) {
         texte: texte.trim() || null,
         latitude: lat,
         longitude: lon,
+        adresse: adresseFinale || null,
         lieu_id: lieuPrechoisit?.id || null,
         evenement_id: evenementPrechoisit?.id || null,
+        expires_at: expiresAt,
+        actif: true,
+        nb_vues: 0,
+        nb_likes: 0,
       });
 
       if (storyError) {
@@ -270,7 +307,7 @@ export default function CreerStoryScreen({ navigation, route }) {
     setChargement(false);
   };
 
-  // ── Étape 1 ───────────────────────────────────────────────────────────────
+  // ── Étape 1 — Choix média + infos ─────────────────────────────────────────
   if (etape === 'media') {
     return (
       <View style={styles.container}>
@@ -310,18 +347,11 @@ export default function CreerStoryScreen({ navigation, route }) {
               </View>
             ) : (
               <>
-                {/* Champ recherche */}
                 <View style={styles.adresseWrap}>
-                  <Ionicons name="search" size={18} color="#9CA3AF" />
+                  <Ionicons name="location-outline" size={18} color="#9CA3AF" />
                   <TextInput
                     style={styles.adresseInput}
-                    placeholder={
-                      locChargement
-                        ? 'Détection de ta position...'
-                        : adresseLocale
-                          ? `Ex: ${adresseLocale}`
-                          : 'Rue, quartier, lieu...'
-                    }
+                    placeholder={locChargement ? 'Détection...' : 'Rue, quartier, lieu...'}
                     placeholderTextColor="#6B7280"
                     value={adresse}
                     onChangeText={rechercherAdresse}
@@ -329,39 +359,29 @@ export default function CreerStoryScreen({ navigation, route }) {
                   />
                   {locChargement && <ActivityIndicator size="small" color="#6B7280" />}
                   {adresse.length > 0 && !locChargement && (
-                    <TouchableOpacity onPress={() => {
-                      setAdresse('');
-                      setSuggestions([]);
-                      setCoordonnees(null);
-                    }}>
+                    <TouchableOpacity onPress={() => { setAdresse(''); setSuggestions([]); setCoordonnees(null); }}>
                       <Ionicons name="close-circle" size={18} color="#6B7280" />
                     </TouchableOpacity>
                   )}
                 </View>
 
-                {/* Position GPS détectée */}
-                {!locChargement && adresseLocale && !adresse && (
+                {/* GPS détecté — bouton rapide */}
+                {!locChargement && adresseLocale && adresse !== adresseLocale && (
                   <TouchableOpacity style={styles.adresseGPS} onPress={utiliserPositionActuelle}>
                     <Ionicons name="navigate" size={14} color="#2563EB" />
                     <Text style={{ color: '#2563EB', fontSize: t(13), flex: 1 }} numberOfLines={1}>
                       {adresseLocale}
                     </Text>
-                    <Text style={{ color: '#2563EB', fontSize: t(12), fontWeight: '600' }}>
-                      Utiliser ›
-                    </Text>
+                    <Text style={{ color: '#2563EB', fontSize: t(12), fontWeight: '600' }}>Utiliser ›</Text>
                   </TouchableOpacity>
                 )}
 
-                {/* Suggestions */}
                 {suggestions.length > 0 && (
                   <View style={styles.suggestionsWrap}>
                     {suggestions.map((s, i) => (
                       <TouchableOpacity
                         key={i}
-                        style={[
-                          styles.suggestionItem,
-                          i < suggestions.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: '#2D3748' }
-                        ]}
+                        style={[styles.suggestionItem, i < suggestions.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: '#2D3748' }]}
                         onPress={() => choisirSuggestion(s)}
                       >
                         <Ionicons name="location-outline" size={14} color="#2563EB" />
@@ -373,13 +393,10 @@ export default function CreerStoryScreen({ navigation, route }) {
                   </View>
                 )}
 
-                {/* Confirmation coordonnées */}
                 {coordonnees && adresse.trim().length > 0 && suggestions.length === 0 && (
                   <View style={styles.adresseConfirmee}>
                     <Ionicons name="checkmark-circle" size={14} color="#059669" />
-                    <Text style={{ color: '#059669', fontSize: t(12) }}>
-                      Adresse géolocalisée ✓
-                    </Text>
+                    <Text style={{ color: '#059669', fontSize: t(12) }}>Adresse géolocalisée ✓</Text>
                   </View>
                 )}
               </>
@@ -405,41 +422,50 @@ export default function CreerStoryScreen({ navigation, route }) {
                 </TouchableOpacity>
               ))}
             </View>
-            {evenementPrechoisit && (
-              <View style={[styles.attachTag, { borderColor: '#2563EB', marginTop: 10 }]}>
-                <Ionicons name="calendar" size={13} color="#2563EB" />
-                <Text style={{ color: '#2563EB', fontSize: t(13), fontWeight: '500' }} numberOfLines={1}>
-                  {evenementPrechoisit.titre}
-                </Text>
-              </View>
-            )}
           </View>
 
           {/* Média */}
           <View style={styles.section}>
             <Text style={styles.sectionTitre}>MÉDIA</Text>
 
+            {/* Caméra arrière */}
             <TouchableOpacity style={styles.mediaBtn} onPress={prendrePhoto}>
               <View style={styles.mediaBtnIcone}>
-                <Ionicons name="camera" size={32} color="#fff" />
+                <Ionicons name="camera" size={28} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mediaBtnLabel}>Prendre une photo</Text>
-                <Text style={styles.mediaBtnDesc}>ou filmer une vidéo</Text>
+                <Text style={styles.mediaBtnLabel}>Caméra arrière</Text>
+                <Text style={styles.mediaBtnDesc}>Photo ou vidéo</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
 
+            {/* Caméra frontale */}
+            <TouchableOpacity
+              style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1a1a2e' }]}
+              onPress={prendrePhotoFrontale}
+            >
+              <View style={[styles.mediaBtnIcone, { backgroundColor: '#7C3AED' }]}>
+                <Ionicons name="camera-reverse" size={28} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mediaBtnLabel}>Caméra frontale</Text>
+                <Text style={styles.mediaBtnDesc}>Selfie — miroir corrigé automatiquement</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+            </TouchableOpacity>
+
+            {/* Galerie */}
             <TouchableOpacity
               style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]}
               onPress={choisirDepuisGalerie}
             >
               <View style={[styles.mediaBtnIcone, { backgroundColor: '#374151' }]}>
-                <Ionicons name="images" size={32} color="#fff" />
+                <Ionicons name="images" size={28} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mediaBtnLabel}>Choisir depuis la galerie</Text>
-                <Text style={styles.mediaBtnDesc}>Photo ou vidéo</Text>
+                <Text style={styles.mediaBtnLabel}>Galerie</Text>
+                <Text style={styles.mediaBtnDesc}>Photo ou vidéo existante</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
@@ -460,7 +486,6 @@ export default function CreerStoryScreen({ navigation, route }) {
         />
       )}
 
-      {/* Texte draggable */}
       {texte.length > 0 && !editTexte && (
         <Animated.View
           style={[styles.texteFlottant, {
@@ -472,7 +497,6 @@ export default function CreerStoryScreen({ navigation, route }) {
         </Animated.View>
       )}
 
-      {/* Header édition */}
       <View style={styles.headerEdition}>
         <TouchableOpacity onPress={() => setEtape('media')} style={{ padding: 4 }}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -500,7 +524,6 @@ export default function CreerStoryScreen({ navigation, route }) {
         </View>
       </View>
 
-      {/* Input texte */}
       {editTexte && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -527,7 +550,6 @@ export default function CreerStoryScreen({ navigation, route }) {
         </KeyboardAvoidingView>
       )}
 
-      {/* Hint drag */}
       {texte.length > 0 && !editTexte && (
         <View style={styles.dragHint}>
           <Text style={styles.dragHintTexte}>✋ Glisse le texte</Text>
@@ -535,15 +557,13 @@ export default function CreerStoryScreen({ navigation, route }) {
       )}
 
       {/* Badge type */}
-      <View style={[styles.typeBadge, {
-        backgroundColor: TYPES.find(tp => tp.key === type)?.couleur,
-      }]}>
+      <View style={[styles.typeBadge, { backgroundColor: TYPES.find(tp => tp.key === type)?.couleur }]}>
         <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
           {TYPES.find(tp => tp.key === type)?.label}
         </Text>
       </View>
 
-      {/* Badge adresse */}
+      {/* ✅ Badge adresse toujours affiché si disponible */}
       {(adresse.trim().length > 0 || lieuPrechoisit || adresseLocale) && (
         <View style={styles.adresseBadge}>
           <Ionicons name="location" size={11} color="#fff" />
@@ -564,10 +584,7 @@ const styles = StyleSheet.create({
   },
   headerTitre: { color: '#fff', fontSize: 18, fontWeight: '600' },
   section: { paddingHorizontal: 20, paddingBottom: 20 },
-  sectionTitre: {
-    color: '#9CA3AF', fontSize: 11, fontWeight: '700',
-    letterSpacing: 0.8, marginBottom: 10,
-  },
+  sectionTitre: { color: '#9CA3AF', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 10 },
   adresseWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#1F2937', borderRadius: 14,
@@ -593,17 +610,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12,
   },
   adresseConfirmee: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginTop: 8, paddingHorizontal: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4,
   },
   typePill: {
-    flex: 1, alignItems: 'center', paddingVertical: 10,
-    borderRadius: 20, borderWidth: 1,
-  },
-  attachTag: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6, alignSelf: 'flex-start',
+    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 20, borderWidth: 1,
   },
   mediaBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
@@ -611,7 +621,7 @@ const styles = StyleSheet.create({
     padding: 16, borderWidth: 1, borderColor: '#333',
   },
   mediaBtnIcone: {
-    width: 56, height: 56, borderRadius: 28,
+    width: 52, height: 52, borderRadius: 26,
     backgroundColor: '#2563EB',
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },

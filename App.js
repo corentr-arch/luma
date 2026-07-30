@@ -3,7 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, ActivityIndicator, LogBox } from 'react-native';
+import { View, Text, ActivityIndicator, LogBox, Platform } from 'react-native';
 
 import { supabase } from './supabase';
 import { EvenementsProvider } from './EvenementsContext';
@@ -37,42 +37,100 @@ LogBox.ignoreLogs([
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+const ONGLETS = [
+  { name: 'Carte',    label: 'Carte',     icone: 'map',          iconeOff: 'map-outline' },
+  { name: 'Explorer', label: 'Explorer',  icone: 'search',       iconeOff: 'search-outline' },
+  { name: 'Messages', label: 'Messages',  icone: 'chatbubbles',  iconeOff: 'chatbubbles-outline' },
+  { name: 'Réglages', label: 'Profil',    icone: 'person',       iconeOff: 'person-outline' },
+];
+
+function IconeOnglet({ name, focused, couleurActif, totalNonLus }) {
+  const onglet = ONGLETS.find(o => o.name === name);
+  if (!onglet) return null;
+
+  const couleur = focused ? couleurActif : '#9CA3AF';
+  const icone = focused ? onglet.icone : onglet.iconeOff;
+
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+      {/* Fond rond quand actif — style Toasty */}
+      <View style={{
+        width: 44,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: focused ? couleurActif + '18' : 'transparent',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <Ionicons name={icone} size={22} color={couleur} />
+        {/* Badge messages non lus */}
+        {name === 'Messages' && totalNonLus > 0 && (
+          <View style={{
+            position: 'absolute', top: -2, right: -2,
+            backgroundColor: '#EF4444',
+            borderRadius: 8, minWidth: 16, height: 16,
+            alignItems: 'center', justifyContent: 'center',
+            paddingHorizontal: 3,
+            borderWidth: 1.5, borderColor: '#fff',
+          }}>
+            <Text style={{ color: '#fff', fontSize: 9, fontWeight: '700' }}>
+              {totalNonLus > 9 ? '9+' : totalNonLus}
+            </Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
 function Onglets() {
   const { theme, facteurTexte } = useApp();
   const { totalNonLus } = useMessagerie();
   const t = (size) => size * facteurTexte;
+  const couleurActif = '#111';
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, size }) => {
-          const icons = {
-            Carte:    focused ? 'map'         : 'map-outline',
-            Explorer: focused ? 'search'      : 'search-outline',
-            Messages: focused ? 'chatbubbles' : 'chatbubbles-outline',
-            Réglages: focused ? 'settings'    : 'settings-outline',
-          };
-          if (route.name === 'Messages' && totalNonLus > 0) {
-            return (
-              <View>
-                <Ionicons name={icons[route.name]} size={size} color={focused ? theme.actif : theme.inactif} />
-                <View style={{
-                  position: 'absolute', top: -4, right: -8,
-                  backgroundColor: '#EF4444', borderRadius: 8,
-                  minWidth: 16, height: 16,
-                  alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
-                }}>
-                  <Text style={{ color: '#fff', fontSize: t(10), fontWeight: '500' }}>{totalNonLus}</Text>
-                </View>
-              </View>
-            );
-          }
-          return <Ionicons name={icons[route.name]} size={size} color={focused ? theme.actif : theme.inactif} />;
+        tabBarIcon: ({ focused }) => (
+          <IconeOnglet
+            name={route.name}
+            focused={focused}
+            couleurActif={couleurActif}
+            totalNonLus={totalNonLus}
+          />
+        ),
+        tabBarLabel: ({ focused }) => {
+          const onglet = ONGLETS.find(o => o.name === route.name);
+          return (
+            <Text style={{
+              fontSize: t(10),
+              fontWeight: focused ? '600' : '400',
+              color: focused ? couleurActif : '#9CA3AF',
+              marginTop: -2,
+              letterSpacing: 0.1,
+            }}>
+              {onglet?.label || route.name}
+            </Text>
+          );
         },
-        tabBarActiveTintColor: theme.actif,
-        tabBarInactiveTintColor: theme.inactif,
-        tabBarStyle: { backgroundColor: theme.tabBar, borderTopColor: theme.border, borderTopWidth: 0.5 },
-        tabBarLabelStyle: { fontSize: t(10), fontWeight: '500' },
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopWidth: 0.5,
+          borderTopColor: '#F0F0F0',
+          height: Platform.OS === 'ios' ? 82 : 62,
+          paddingTop: 8,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+          // Ombre légère style Toasty
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.04,
+          shadowRadius: 8,
+          elevation: 8,
+        },
+        tabBarItemStyle: {
+          paddingTop: 2,
+        },
         headerShown: false,
       })}
     >
@@ -137,7 +195,6 @@ function Navigation() {
     };
   }, []);
 
-  // Polling — détecte quand onboarding_vu passe à true
   useEffect(() => {
     if (onboardingVu || !session?.user) return;
     const interval = setInterval(async () => {

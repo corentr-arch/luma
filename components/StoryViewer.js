@@ -8,7 +8,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { useApp } from '../AppContext';
 
-const { width: W, height: H } = Dimensions.get('window');
+const { width: W } = Dimensions.get('window');
 const DUREE_IMAGE = 5000;
 
 export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0, onFermer, onVoirCarte, onStoryDeleted, navigation }) {
@@ -54,7 +54,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
 
   useEffect(() => {
     if (pause) stopProgression();
-    else demarrerProgression();
+    else if (story) demarrerProgression();
   }, [pause]);
 
   const marquerVue = async () => {
@@ -73,7 +73,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     progression.setValue(0);
     animRef.current = Animated.timing(progression, {
       toValue: 1,
-      duration: story.media_type === 'video' ? 15000 : DUREE_IMAGE,
+      duration: DUREE_IMAGE,
       useNativeDriver: false,
     });
     animRef.current.start(({ finished }) => { if (finished) suivante(); });
@@ -107,20 +107,41 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
       'Supprimer cette story ?',
       'Elle sera supprimée définitivement.',
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: 'Annuler', style: 'cancel', onPress: () => { setPause(false); demarrerProgression(); } },
         {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
             try {
               stopProgression();
-              await supabase.from('stories').update({ actif: false }).eq('id', story.id);
-              // Supprime aussi le fichier storage
-              const nomFichier = story.media_url.split('/stories/')[1];
-              if (nomFichier) await supabase.storage.from('stories').remove([nomFichier]);
 
+              // ✅ Extrait le bon chemin depuis l'URL publique Supabase
+              // URL format: .../storage/v1/object/public/stories/USER_ID/FICHIER.jpg
+              const urlParts = story.media_url.split('/storage/v1/object/public/stories/');
+              const cheminFichier = urlParts[1]; // ex: "user-id/1782653199687.jpg"
+
+              // Supprime en base d'abord
+              const { error: dbError } = await supabase
+                .from('stories')
+                .update({ actif: false })
+                .eq('id', story.id);
+
+              if (dbError) {
+                Alert.alert('Erreur', 'Impossible de supprimer la story');
+                setPause(false);
+                demarrerProgression();
+                return;
+              }
+
+              // Supprime le fichier dans le storage
+              if (cheminFichier) {
+                await supabase.storage.from('stories').remove([cheminFichier]);
+              }
+
+              // Callback pour mettre à jour les listes parentes
               if (onStoryDeleted) onStoryDeleted(story.id);
 
+              // Met à jour la liste locale
               const newStories = stories.filter(s => s.id !== story.id);
               if (newStories.length === 0) {
                 onFermer();
@@ -130,6 +151,8 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
               }
             } catch (e) {
               Alert.alert('Erreur', 'Impossible de supprimer la story');
+              setPause(false);
+              demarrerProgression();
             }
           },
         },
@@ -158,31 +181,56 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     return `il y a ${Math.floor(h / 24)}j`;
   };
 
-  const onTouchStart = (e) => { tapDebut.current = e.nativeEvent.timestamp; setPause(true); stopProgression(); };
+  const onTouchStart = (e) => {
+    tapDebut.current = e.nativeEvent.timestamp;
+    setPause(true);
+    stopProgression();
+  };
+
   const onTouchEnd = (e) => {
     const dur = e.nativeEvent.timestamp - tapDebut.current;
     if (dur < 200) {
       const x = e.nativeEvent.locationX;
       if (x < W / 3) precedente(); else suivante();
-    } else { setPause(false); demarrerProgression(); }
+    } else {
+      setPause(false);
+      demarrerProgression();
+    }
   };
 
   if (!story) return null;
 
-  const couleurType = story.type === 'spot' ? '#EF4444' : story.type === 'evenement' ? '#2563EB' : '#8B5CF6';
-  const labelType = story.type === 'spot' ? '⚡ Spot' : story.type === 'evenement' ? '🎉 Événement' : '📍 Lieu';
+  const couleurType =
+    story.type === 'spot' ? '#EF4444' :
+    story.type === 'evenement' ? '#2563EB' : '#8B5CF6';
+
+  const labelType =
+    story.type === 'spot' ? '⚡ Spot' :
+    story.type === 'evenement' ? '🎉 Événement' : '📍 Lieu';
 
   return (
     <View style={styles.container}>
       <StatusBar hidden />
 
-      <View style={StyleSheet.absoluteFill} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <Image source={{ uri: story.media_url }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+      {/* Media */}
+      <View
+        style={StyleSheet.absoluteFill}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <Image
+          source={{ uri: story.media_url }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="contain"
+        />
       </View>
 
+      {/* Dégradé haut */}
       <View style={styles.gradientHaut} pointerEvents="none" />
+      {/* Dégradé bas */}
       <View style={styles.gradientBas} pointerEvents="none" />
 
+      {/* Barres de progression */}
       <SafeAreaView style={styles.barresWrap} pointerEvents="none">
         <View style={styles.barres}>
           {stories.map((_, i) => (
@@ -201,18 +249,31 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
           ))}
         </View>
 
+        {/* Header */}
         <View style={styles.header} pointerEvents="box-none">
           <View style={styles.auteurRow}>
             {auteur?.avatar_url ? (
               <Image source={{ uri: auteur.avatar_url }} style={styles.avatar} />
             ) : (
               <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Ionicons name="camera" size={18} color="#fff" />
+                <Ionicons name="person" size={18} color="#fff" />
               </View>
             )}
             <View style={{ flex: 1 }}>
               <Text style={styles.prenomTexte}>{auteur?.prenom || 'Luma'}</Text>
-              <Text style={styles.tempsTexte}>{formatTemps(story.created_at)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={styles.tempsTexte}>{formatTemps(story.created_at)}</Text>
+                {/* ✅ Adresse affichée sous le prénom */}
+                {story.adresse && (
+                  <>
+                    <Text style={styles.tempsTexte}>·</Text>
+                    <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
+                    <Text style={[styles.tempsTexte, { flex: 1 }]} numberOfLines={1}>
+                      {story.adresse}
+                    </Text>
+                  </>
+                )}
+              </View>
             </View>
             <View style={[styles.typePill, { backgroundColor: couleurType }]}>
               <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>{labelType}</Text>
@@ -220,10 +281,10 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
           </View>
 
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            {/* Bouton supprimer — visible uniquement pour l'auteur */}
+            {/* ✅ Bouton supprimer — uniquement pour l'auteur */}
             {estMonStory && (
               <TouchableOpacity
-                onPress={() => { setPause(true); stopProgression(); supprimerStory(); }}
+                onPress={() => { stopProgression(); setPause(true); supprimerStory(); }}
                 style={styles.supprimerBtn}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -241,12 +302,14 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
         </View>
       </SafeAreaView>
 
+      {/* Texte superposé */}
       {story.texte && (
         <View style={styles.texteWrap} pointerEvents="none">
           <Text style={styles.texteStory}>{story.texte}</Text>
         </View>
       )}
 
+      {/* Actions bas */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.actionsWrap}
@@ -265,7 +328,10 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
             <TouchableOpacity onPress={envoyerReponse} style={styles.envoyerBtn}>
               <Ionicons name="send" size={20} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setShowReponse(false); setPause(false); demarrerProgression(); }} style={styles.annulerBtn}>
+            <TouchableOpacity
+              onPress={() => { setShowReponse(false); setPause(false); demarrerProgression(); }}
+              style={styles.annulerBtn}
+            >
               <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
             </TouchableOpacity>
           </View>
@@ -287,7 +353,10 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
             </TouchableOpacity>
 
             {story.latitude && story.longitude && onVoirCarte && (
-              <TouchableOpacity style={styles.actionBtn} onPress={() => { onFermer(); onVoirCarte(story.latitude, story.longitude); }}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => { onFermer(); onVoirCarte(story.latitude, story.longitude); }}
+              >
                 <Ionicons name="map" size={24} color="#fff" />
               </TouchableOpacity>
             )}
@@ -305,31 +374,76 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  gradientHaut: { position: 'absolute', top: 0, left: 0, right: 0, height: 200, zIndex: 5, backgroundColor: 'transparent' },
-  gradientBas: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 200, zIndex: 5, backgroundColor: 'transparent' },
+  gradientHaut: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 220,
+    zIndex: 5, backgroundColor: 'transparent',
+  },
+  gradientBas: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 200,
+    zIndex: 5, backgroundColor: 'transparent',
+  },
   barresWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   barres: { flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingTop: 8 },
-  barreContainer: { flex: 1, height: 2.5, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, overflow: 'hidden' },
+  barreContainer: {
+    flex: 1, height: 2.5,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 2, overflow: 'hidden',
+  },
   barre: { height: '100%', borderRadius: 2 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 6, paddingBottom: 4 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingTop: 6, paddingBottom: 4,
+  },
   auteurRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   avatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 2, borderColor: '#fff' },
   avatarPlaceholder: { backgroundColor: '#374151', alignItems: 'center', justifyContent: 'center' },
-  prenomTexte: { color: '#fff', fontSize: 14, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  prenomTexte: {
+    color: '#fff', fontSize: 14, fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
+  },
   tempsTexte: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
   typePill: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
-  supprimerBtn: { padding: 4, backgroundColor: 'rgba(239,68,68,0.3)', borderRadius: 20, padding: 6 },
+  supprimerBtn: {
+    padding: 6, backgroundColor: 'rgba(239,68,68,0.3)',
+    borderRadius: 20, alignItems: 'center', justifyContent: 'center',
+  },
   fermerBtn: { padding: 4 },
-  texteWrap: { position: 'absolute', bottom: 130, left: 20, right: 20, alignItems: 'center', zIndex: 8 },
-  texteStory: { color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, overflow: 'hidden' },
+  texteWrap: {
+    position: 'absolute', bottom: 130, left: 20, right: 20,
+    alignItems: 'center', zIndex: 8,
+  },
+  texteStory: {
+    color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 8, overflow: 'hidden',
+  },
   actionsWrap: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10 },
-  actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: Platform.OS === 'ios' ? 44 : 20, paddingTop: 12 },
-  reponsePill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 24, paddingHorizontal: 14, paddingVertical: 10 },
+  actionsRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 20,
+    paddingTop: 12,
+  },
+  reponsePill: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)',
+    borderRadius: 24, paddingHorizontal: 14, paddingVertical: 10,
+  },
   reponsePillTexte: { color: 'rgba(255,255,255,0.6)', fontSize: 14 },
   actionBtn: { alignItems: 'center', gap: 2 },
   actionCount: { color: 'rgba(255,255,255,0.8)', fontSize: 11 },
-  reponseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingBottom: Platform.OS === 'ios' ? 44 : 20, paddingTop: 12 },
-  reponseInput: { flex: 1, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, color: '#fff', fontSize: 14 },
+  reponseRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 20,
+    paddingTop: 12,
+  },
+  reponseInput: {
+    flex: 1, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)',
+    borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10,
+    color: '#fff', fontSize: 14,
+  },
   envoyerBtn: { padding: 8 },
   annulerBtn: { padding: 8 },
 });
