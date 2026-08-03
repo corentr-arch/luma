@@ -4,7 +4,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 
@@ -30,213 +30,188 @@ function separateurDate(dateStr) {
 
 export default function ConversationScreen({ route, navigation }) {
   const { convId, interlocuteur: interlocuteurParam } = route.params;
-  const { theme, facteurTexte } = useApp();
+  const { theme, facteurTexte, profil } = useApp();
 
   const [messages, setMessages] = useState([]);
   const [texte, setTexte] = useState('');
   const [envoi, setEnvoi] = useState(false);
   const [chargement, setChargement] = useState(true);
-  const [userActuel, setUserActuel] = useState(null);
   const [interlocuteur, setInterlocuteur] = useState(interlocuteurParam || null);
 
   const flatListRef = useRef(null);
   const t = (size) => size * facteurTexte;
 
   useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUserActuel(user);
-      if (user) {
-        await chargerMessages(user.id);
-        await marquerLus(user.id);
-        if (!interlocuteurParam) await chargerInterlocuteur(user.id);
-      }
-    })();
+    chargerInterlocuteur();
+    chargerMessages();
+    marquerLus();
   }, [convId]);
 
-  const chargerInterlocuteur = async (monId) => {
-    try {
-      const { data } = await supabase
-        .from('conversation_membres')
-        .select('profiles (id, pseudo, avatar_url)')
-        .eq('conversation_id', convId)
-        .neq('user_id', monId)
-        .single();
-      if (data?.profiles) setInterlocuteur(data.profiles);
-    } catch {}
-  };
-
-  const chargerMessages = async (monId) => {
-    try {
-      const { data } = await supabase
-        .from('messages')
-        .select(`
-          id, texte, auteur_id, created_at, lu,
-          profiles:auteur_id (pseudo, avatar_url)
-        `)
-        .eq('conversation_id', convId)
-        .order('created_at', { ascending: true });
-
-      if (data) setMessages(data);
-    } catch (e) {
-      console.log('Erreur chargement messages:', e);
-    }
-    setChargement(false);
-  };
-
-  const marquerLus = async (monId) => {
-    try {
-      await supabase
-        .from('messages')
-        .update({ lu: true })
-        .eq('conversation_id', convId)
-        .neq('auteur_id', monId)
-        .eq('lu', false);
-    } catch {}
-  };
-
-  // Abonnement temps réel
+  // ✅ Abonnement temps réel sur messages_luma
   useEffect(() => {
-    if (!userActuel) return;
-
     const channel = supabase
-      .channel(`conv_${convId}`)
+      .channel(`conv_${convId}_${Date.now()}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'messages',
+        table: 'messages_luma',
         filter: `conversation_id=eq.${convId}`,
-      }, async (payload) => {
-        // Récupère le profil de l'auteur
-        const { data: profil } = await supabase
-          .from('profiles')
-          .select('pseudo, avatar_url')
-          .eq('id', payload.new.auteur_id)
-          .single();
-
-        const nvMsg = { ...payload.new, profiles: profil };
-        setMessages(prev => [...prev, nvMsg]);
-
-        // Marque comme lu si c'est pas moi
-        if (payload.new.auteur_id !== userActuel.id) {
-          await supabase
-            .from('messages')
-            .update({ lu: true })
-            .eq('id', payload.new.id);
-        }
-
+      }, (payload) => {
+        setMessages(prev => {
+          const existe = prev.find(m => m.id === payload.new.id);
+          if (existe) return prev;
+          return [...prev, payload.new];
+        });
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        // Marque comme lu si c'est pas moi
+        if (payload.new.auteur_id !== profil?.id) {
+          supabase.from('messages_luma')
+            .update({ lu: true })
+            .eq('id', payload.new.id)
+            .then(() => {});
+        }
       })
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [convId, userActuel]);
+  }, [convId, profil?.id]);
 
-  // Scroll vers le bas au chargement
-  useEffect(() => {
-    if (!chargement && messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
+  const chargerInterlocuteur = async () => {
+    if (interlocuteurParam?.prenom) return;
+    try {
+      const { data } = await supabase
+        .from('conversation_membres')
+        .select('user_id, profiles(id, prenom, avatar_url, handle)')
+        .eq('conversation_id', convId)
+        .neq('user_id', profil?.id);
+
+      if (data && data.length > 0 && data[0].profiles) {
+        setInterlocuteur(data[0].profiles);
+      }
+    } catch {}
+  };
+
+  const chargerMessages = async () => {
+    setChargement(true);
+    try {
+      const { data, error } = await supabase
+        .from('messages_luma')
+        .select('id, contenu, auteur_id, lu, created_at')
+        .eq('conversation_id', convId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Erreur chargement messages:', error);
+      } else if (data) {
+        setMessages(data);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
+      }
+    } catch (e) {
+      console.error('Erreur:', e);
     }
-  }, [chargement]);
+    setChargement(false);
+  };
+
+  const marquerLus = async () => {
+    if (!profil?.id) return;
+    try {
+      await supabase
+        .from('messages_luma')
+        .update({ lu: true })
+        .eq('conversation_id', convId)
+        .neq('auteur_id', profil.id)
+        .eq('lu', false);
+    } catch {}
+  };
 
   const envoyer = async () => {
-    if (!texte.trim() || !userActuel || envoi) return;
+    if (!texte.trim() || !profil?.id || envoi) return;
     const texteTrimme = texte.trim();
     setTexte('');
     setEnvoi(true);
 
     try {
       const { data, error } = await supabase
-        .from('messages')
+        .from('messages_luma')
         .insert({
           conversation_id: convId,
-          auteur_id: userActuel.id,
-          texte: texteTrimme,
+          auteur_id: profil.id,
+          contenu: texteTrimme,
           lu: false,
         })
         .select()
         .single();
 
-      if (error) throw error;
-
-      // Mise à jour optimiste
-      const nvMsg = {
-        ...data,
-        profiles: { pseudo: 'Moi', avatar_url: null },
-      };
-      setMessages(prev => {
-        const existe = prev.find(m => m.id === nvMsg.id);
-        return existe ? prev : [...prev, nvMsg];
-      });
-
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      if (error) {
+        console.error('Erreur envoi:', error);
+        setTexte(texteTrimme);
+      } else if (data) {
+        setMessages(prev => {
+          const existe = prev.find(m => m.id === data.id);
+          return existe ? prev : [...prev, data];
+        });
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      }
     } catch (e) {
-      console.log('Erreur envoi:', e);
+      console.error('Erreur:', e);
       setTexte(texteTrimme);
     }
     setEnvoi(false);
   };
 
-  // Groupe les messages par date
+  const getNom = () =>
+    interlocuteur?.prenom || interlocuteur?.handle || 'Utilisateur';
+
+  // Groupement par date
   const messagesAvecSeparateurs = [];
   let dernierJour = null;
   messages.forEach((msg, i) => {
     const jour = new Date(msg.created_at).toDateString();
     if (jour !== dernierJour) {
-      messagesAvecSeparateurs.push({ type: 'separateur', id: `sep_${i}`, date: msg.created_at });
+      messagesAvecSeparateurs.push({ type: 'sep', id: `sep_${i}`, date: msg.created_at });
       dernierJour = jour;
     }
-    messagesAvecSeparateurs.push({ type: 'message', ...msg });
+    messagesAvecSeparateurs.push({ type: 'msg', ...msg });
   });
 
   const renderItem = ({ item }) => {
-    if (item.type === 'separateur') {
+    if (item.type === 'sep') {
       return (
         <View style={styles.separateur}>
-          <View style={[styles.separateurLigne, { backgroundColor: theme.border }]} />
-          <Text style={[styles.separateurTexte, { color: theme.text3, backgroundColor: theme.bg }]}>
+          <View style={[styles.sepLigne, { backgroundColor: theme.border }]} />
+          <Text style={[styles.sepTexte, { color: theme.text3 }]}>
             {separateurDate(item.date)}
           </Text>
-          <View style={[styles.separateurLigne, { backgroundColor: theme.border }]} />
+          <View style={[styles.sepLigne, { backgroundColor: theme.border }]} />
         </View>
       );
     }
 
-    const estMoi = item.auteur_id === userActuel?.id;
+    const estMoi = item.auteur_id === profil?.id;
 
     return (
-      <View style={[styles.msgWrap, estMoi ? styles.msgWrapMoi : styles.msgWrapAutre]}>
+      <View style={[styles.msgWrap, estMoi ? styles.msgMoi : styles.msgAutre]}>
         {!estMoi && (
-          <View style={styles.msgAvatarWrap}>
-            {item.profiles?.avatar_url ? (
-              <Image source={{ uri: item.profiles.avatar_url }} style={styles.msgAvatar} />
-            ) : (
-              <View style={[styles.msgAvatarPlaceholder, { backgroundColor: '#DBEAFE' }]}>
-                <Text style={{ color: '#2563EB', fontSize: t(11), fontWeight: '600' }}>
-                  {(item.profiles?.pseudo || interlocuteur?.pseudo || 'U')[0].toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
+          interlocuteur?.avatar_url ? (
+            <Image source={{ uri: interlocuteur.avatar_url }} style={styles.msgAvatar} />
+          ) : (
+            <View style={[styles.msgAvatarPlaceholder, { backgroundColor: '#DBEAFE' }]}>
+              <Text style={{ color: '#2563EB', fontSize: 12, fontWeight: '600' }}>
+                {getNom()[0].toUpperCase()}
+              </Text>
+            </View>
+          )
         )}
 
         <View style={[
-          styles.msgBulle,
-          estMoi
-            ? [styles.msgBulleMoi, { backgroundColor: '#2563EB' }]
-            : [styles.msgBulleAutre, { backgroundColor: theme.card, borderColor: theme.border }],
+          styles.bulle,
+          estMoi ? styles.bulleMoi : [styles.bulleAutre, { backgroundColor: theme.card, borderColor: theme.border }],
         ]}>
-          <Text style={[
-            styles.msgTexte,
-            { color: estMoi ? '#fff' : theme.text, fontSize: t(14) },
-          ]}>
-            {item.texte}
+          <Text style={[styles.bulleTexte, { color: estMoi ? '#fff' : theme.text, fontSize: t(14) }]}>
+            {item.contenu}
           </Text>
-          <View style={styles.msgMeta}>
-            <Text style={[
-              styles.msgHeure,
-              { color: estMoi ? 'rgba(255,255,255,0.65)' : theme.text3, fontSize: t(10) },
-            ]}>
+          <View style={styles.bulleMeta}>
+            <Text style={{ color: estMoi ? 'rgba(255,255,255,0.6)' : theme.text3, fontSize: t(10) }}>
               {formatHeure(item.created_at)}
             </Text>
             {estMoi && (
@@ -256,7 +231,6 @@ export default function ConversationScreen({ route, navigation }) {
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: theme.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -267,30 +241,26 @@ export default function ConversationScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.headerProfil}
           onPress={() => interlocuteur?.id && navigation.navigate('ProfilPublic', { userId: interlocuteur.id })}
+          activeOpacity={0.7}
         >
           {interlocuteur?.avatar_url ? (
             <Image source={{ uri: interlocuteur.avatar_url }} style={styles.headerAvatar} />
           ) : (
             <View style={[styles.headerAvatarPlaceholder, { backgroundColor: '#DBEAFE' }]}>
-              <Text style={{ color: '#2563EB', fontSize: t(15), fontWeight: '600' }}>
-                {(interlocuteur?.pseudo || 'U')[0].toUpperCase()}
+              <Text style={{ color: '#2563EB', fontSize: t(16), fontWeight: '600' }}>
+                {getNom()[0].toUpperCase()}
               </Text>
             </View>
           )}
           <View>
             <Text style={[styles.headerNom, { color: theme.text, fontSize: t(15) }]}>
-              {interlocuteur?.pseudo || 'Utilisateur'}
+              {getNom()}
             </Text>
             <Text style={{ color: theme.text3, fontSize: t(11) }}>Voir le profil</Text>
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.headerAction, { backgroundColor: theme.bg }]}
-          onPress={() => interlocuteur?.id && navigation.navigate('ProfilPublic', { userId: interlocuteur.id })}
-        >
-          <Ionicons name="person-outline" size={18} color={theme.text} />
-        </TouchableOpacity>
+        <View style={{ width: 36 }} />
       </View>
 
       {/* Messages */}
@@ -301,13 +271,13 @@ export default function ConversationScreen({ route, navigation }) {
       ) : messages.length === 0 ? (
         <View style={styles.vide}>
           <View style={[styles.videIcone, { backgroundColor: theme.card }]}>
-            <Ionicons name="chatbubble-outline" size={28} color={theme.text3} />
+            <Ionicons name="chatbubble-outline" size={32} color={theme.text3} />
           </View>
-          <Text style={[styles.videTexte, { color: theme.text, fontSize: t(15) }]}>
+          <Text style={[{ color: theme.text, fontSize: t(16), fontWeight: '500' }]}>
             Début de la conversation
           </Text>
-          <Text style={[styles.videDesc, { color: theme.text3, fontSize: t(13) }]}>
-            Envoie un message à {interlocuteur?.pseudo || 'cet utilisateur'}
+          <Text style={[{ color: theme.text3, fontSize: t(13), textAlign: 'center' }]}>
+            Envoie un message à {getNom()}
           </Text>
         </View>
       ) : (
@@ -318,11 +288,12 @@ export default function ConversationScreen({ route, navigation }) {
           renderItem={renderItem}
           contentContainerStyle={styles.liste}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
       {/* Saisie */}
-      <View style={[styles.saisieWrap, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
+      <View style={[styles.saisie, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
         <TextInput
           style={[styles.saisieInput, {
             color: theme.text,
@@ -330,26 +301,26 @@ export default function ConversationScreen({ route, navigation }) {
             borderColor: theme.border,
             fontSize: t(14),
           }]}
-          placeholder="Message..."
+          placeholder={`Message à ${getNom()}...`}
           placeholderTextColor={theme.text3}
           value={texte}
           onChangeText={setTexte}
           multiline
           maxLength={1000}
           onSubmitEditing={envoyer}
+          returnKeyType="send"
+          blurOnSubmit={false}
         />
         <TouchableOpacity
-          style={[styles.envoiBtn, {
-            backgroundColor: texte.trim() ? '#2563EB' : theme.border,
-          }]}
+          style={[styles.envoiBtn, { backgroundColor: texte.trim() ? '#2563EB' : theme.border }]}
           onPress={envoyer}
           disabled={!texte.trim() || envoi}
+          activeOpacity={0.7}
         >
-          {envoi ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Ionicons name="send" size={18} color="#fff" />
-          )}
+          {envoi
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Ionicons name="send" size={18} color="#fff" />
+          }
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -363,58 +334,43 @@ const styles = StyleSheet.create({
     padding: 12, paddingTop: 56, borderBottomWidth: 0.5,
   },
   headerProfil: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerAvatar: { width: 38, height: 38, borderRadius: 19 },
+  headerAvatar: { width: 40, height: 40, borderRadius: 20 },
   headerAvatarPlaceholder: {
-    width: 38, height: 38, borderRadius: 19,
+    width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerNom: { fontWeight: '500' },
-  headerAction: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  liste: { padding: 12, gap: 4, paddingBottom: 8 },
-  separateur: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 8, marginVertical: 12,
-  },
-  separateurLigne: { flex: 1, height: 0.5 },
-  separateurTexte: { fontSize: 11, paddingHorizontal: 8 },
-  msgWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 2 },
-  msgWrapMoi: { justifyContent: 'flex-end' },
-  msgWrapAutre: { justifyContent: 'flex-start' },
-  msgAvatarWrap: {},
-  msgAvatar: { width: 28, height: 28, borderRadius: 14 },
+  headerNom: { fontWeight: '600' },
+  liste: { padding: 12, paddingBottom: 8 },
+  separateur: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 12 },
+  sepLigne: { flex: 1, height: 0.5 },
+  sepTexte: { fontSize: 11, paddingHorizontal: 4 },
+  msgWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginVertical: 2 },
+  msgMoi: { justifyContent: 'flex-end' },
+  msgAutre: { justifyContent: 'flex-start' },
+  msgAvatar: { width: 28, height: 28, borderRadius: 14, flexShrink: 0 },
   msgAvatarPlaceholder: {
     width: 28, height: 28, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  msgBulle: {
-    maxWidth: '75%', borderRadius: 18, padding: 10, paddingHorizontal: 14,
-  },
-  msgBulleMoi: { borderBottomRightRadius: 4, borderWidth: 0 },
-  msgBulleAutre: { borderBottomLeftRadius: 4, borderWidth: 0.5 },
-  msgTexte: { lineHeight: 20 },
-  msgMeta: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    marginTop: 3, justifyContent: 'flex-end',
-  },
-  msgHeure: {},
+  bulle: { maxWidth: '75%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
+  bulleMoi: { backgroundColor: '#2563EB', borderBottomRightRadius: 4 },
+  bulleAutre: { borderBottomLeftRadius: 4, borderWidth: 0.5 },
+  bulleTexte: { lineHeight: 20 },
+  bulleMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, justifyContent: 'flex-end' },
   vide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 32 },
-  videIcone: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  videTexte: { fontWeight: '500' },
-  videDesc: { textAlign: 'center', color: '#888', lineHeight: 20 },
-  saisieWrap: {
+  videIcone: { width: 64, height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  saisie: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     padding: 10, paddingHorizontal: 12, borderTopWidth: 0.5,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 10,
   },
   saisieInput: {
-    flex: 1, borderRadius: 22, paddingHorizontal: 14,
+    flex: 1, borderRadius: 22, paddingHorizontal: 16,
     paddingVertical: 10, borderWidth: 0.5,
-    maxHeight: 120, minHeight: 42,
+    maxHeight: 120, minHeight: 44,
   },
   envoiBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: 'center', justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
 });

@@ -25,10 +25,27 @@ export default function MessagerieScreen({ navigation }) {
     }, [profil])
   );
 
+  // Abonnement temps réel pour mettre à jour la liste
+  useEffect(() => {
+    if (!profil?.id) return;
+    const channel = supabase
+      .channel(`messagerie_${profil.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages_luma',
+      }, () => {
+        chargerConversations();
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [profil?.id]);
+
   const chargerConversations = async () => {
     if (!profil?.id) return;
     setChargement(true);
     try {
+      // Récupère les IDs des conversations
       const { data: memberships } = await supabase
         .from('conversation_membres')
         .select('conversation_id')
@@ -44,31 +61,51 @@ export default function MessagerieScreen({ navigation }) {
 
       const { data: convs } = await supabase
         .from('conversations')
-        .select('id, created_at, updated_at')
+        .select('id, updated_at')
         .in('id', convIds)
         .order('updated_at', { ascending: false })
         .limit(30);
 
-      if (!convs) { setConversations([]); setChargement(false); return; }
+      if (!convs?.length) {
+        setConversations([]);
+        setChargement(false);
+        return;
+      }
 
+      // Pour chaque conversation, charge membres + dernier message
       const convsCompletes = await Promise.all(convs.map(async (conv) => {
-        const { data: membres } = await supabase
-          .from('conversation_membres')
-          .select('user_id, profiles(id, prenom, avatar_url)')
-          .eq('conversation_id', conv.id);
-
-        const { data: msgs } = await supabase
-          .from('messages')
-          .select('id, contenu, created_at, auteur_id')
-          .eq('conversation_id', conv.id)
-          .order('created_at', { ascending: false })
-          .limit(1);
+        const [{ data: membres }, { data: msgs }] = await Promise.all([
+          supabase
+            .from('conversation_membres')
+            .select('user_id, profiles(id, prenom, avatar_url, handle)')
+            .eq('conversation_id', conv.id),
+          supabase
+            .from('messages_luma')
+            .select('id, contenu, auteur_id, lu, created_at')
+            .eq('conversation_id', conv.id)
+            .order('created_at', { ascending: false })
+            .limit(1),
+        ]);
 
         const autresMembres = (membres || [])
           .filter(m => m.user_id !== profil.id)
-          .map(m => m.profiles);
+          .map(m => m.profiles)
+          .filter(Boolean);
 
-        return { ...conv, autresMembres, dernierMessage: msgs?.[0] || null };
+        // Compte messages non lus
+        const { count: nonLus } = await supabase
+          .from('messages_luma')
+          .select('id', { count: 'exact', head: true })
+          .eq('conversation_id', conv.id)
+          .neq('auteur_id', profil.id)
+          .eq('lu', false);
+
+        return {
+          ...conv,
+          autresMembres,
+          dernierMessage: msgs?.[0] || null,
+          nonLus: nonLus || 0,
+        };
       }));
 
       setConversations(convsCompletes);
@@ -108,6 +145,7 @@ export default function MessagerieScreen({ navigation }) {
     }
 
     try {
+      // Cherche conversation existante
       const { data: mesMembres } = await supabase
         .from('conversation_membres')
         .select('conversation_id')
@@ -130,9 +168,10 @@ export default function MessagerieScreen({ navigation }) {
         return;
       }
 
+      // Crée une nouvelle conversation
       const { data: nouvelleConv, error: errConv } = await supabase
         .from('conversations')
-        .insert({ type: 'direct' })
+        .insert({ type: 'direct', nom: null })
         .select('id')
         .single();
 
@@ -141,16 +180,29 @@ export default function MessagerieScreen({ navigation }) {
         return;
       }
 
-      await supabase.from('conversation_membres').insert([
-        { conversation_id: nouvelleConv.id, user_id: profil.id },
-        { conversation_id: nouvelleConv.id, user_id: autreUser.id },
-      ]);
+      // Ajoute les deux membres
+      const { error: errMembre1 } = await supabase
+        .from('conversation_membres')
+        .insert({ conversation_id: nouvelleConv.id, user_id: profil.id });
+
+      if (errMembre1) {
+        Alert.alert('Erreur', errMembre1.message);
+        return;
+      }
+
+      await supabase
+        .from('conversation_membres')
+        .insert({ conversation_id: nouvelleConv.id, user_id: autreUser.id });
 
       fermerModal();
       navigation.navigate('Conversation', {
         convId: nouvelleConv.id,
         interlocuteur: autreUser,
       });
+
+      // Recharge la liste
+      setTimeout(chargerConversations, 500);
+
     } catch (e) {
       Alert.alert('Erreur', String(e?.message || e));
     }
@@ -177,7 +229,8 @@ export default function MessagerieScreen({ navigation }) {
 
   const convsFiltrees = conversations.filter(conv =>
     !recherche || conv.autresMembres?.some(m =>
-      m?.prenom?.toLowerCase().includes(recherche.toLowerCase())
+      m?.prenom?.toLowerCase().includes(recherche.toLowerCase()) ||
+      m?.handle?.toLowerCase().includes(recherche.toLowerCase())
     )
   );
 
@@ -214,9 +267,12 @@ export default function MessagerieScreen({ navigation }) {
         <View style={styles.vide}><ActivityIndicator color="#2563EB" /></View>
       ) : convsFiltrees.length === 0 ? (
         <View style={styles.vide}>
-          <Ionicons name="chatbubbles-outline" size={48} color={theme.text3} />
-          <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>
-            {recherche ? 'Aucune conversation trouvée' : 'Aucun message'}
+          <Ionicons name="chatbubbles-outline" size={52} color={theme.text3} />
+          <Text style={{ color: theme.text, fontSize: t(17), fontWeight: '600', marginTop: 12 }}>
+            {recherche ? 'Aucune conversation' : 'Aucun message'}
+          </Text>
+          <Text style={{ color: theme.text3, fontSize: t(13), textAlign: 'center', marginTop: 4 }}>
+            {!recherche && "Démarre une conversation avec quelqu'un !"}
           </Text>
           {!recherche && (
             <TouchableOpacity
@@ -235,6 +291,7 @@ export default function MessagerieScreen({ navigation }) {
           renderItem={({ item }) => {
             const autre = item.autresMembres?.[0];
             const dernierMsg = item.dernierMessage;
+            const nom = autre?.prenom || autre?.handle || 'Utilisateur';
             return (
               <TouchableOpacity
                 style={[styles.convItem, { borderBottomColor: theme.border }]}
@@ -249,14 +306,14 @@ export default function MessagerieScreen({ navigation }) {
                 ) : (
                   <View style={[styles.convAvatar, styles.avatarPlaceholder]}>
                     <Text style={{ color: '#fff', fontWeight: '700', fontSize: 18 }}>
-                      {(autre?.prenom || '?')[0].toUpperCase()}
+                      {nom[0].toUpperCase()}
                     </Text>
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600' }}>
-                      {autre?.prenom || 'Utilisateur'}
+                    <Text style={{ color: theme.text, fontSize: t(15), fontWeight: item.nonLus > 0 ? '700' : '500' }}>
+                      {nom}
                     </Text>
                     {dernierMsg && (
                       <Text style={{ color: theme.text3, fontSize: t(11) }}>
@@ -264,11 +321,20 @@ export default function MessagerieScreen({ navigation }) {
                       </Text>
                     )}
                   </View>
-                  <Text style={{ color: theme.text3, fontSize: t(13) }} numberOfLines={1}>
-                    {dernierMsg
-                      ? (dernierMsg.auteur_id === profil?.id ? 'Toi : ' : '') + dernierMsg.contenu
-                      : "Démarre la conversation !"}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: item.nonLus > 0 ? theme.text : theme.text3, fontSize: t(13), fontWeight: item.nonLus > 0 ? '500' : '400', flex: 1 }} numberOfLines={1}>
+                      {dernierMsg
+                        ? (dernierMsg.auteur_id === profil?.id ? 'Toi : ' : '') + dernierMsg.contenu
+                        : "Démarre la conversation !"}
+                    </Text>
+                    {item.nonLus > 0 && (
+                      <View style={styles.badgeNonLus}>
+                        <Text style={{ color: '#fff', fontSize: t(10), fontWeight: '700' }}>
+                          {item.nonLus > 9 ? '9+' : item.nonLus}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </TouchableOpacity>
             );
@@ -277,6 +343,7 @@ export default function MessagerieScreen({ navigation }) {
         />
       )}
 
+      {/* Modal nouvelle conversation */}
       {showNouvelleConv && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -318,7 +385,7 @@ export default function MessagerieScreen({ navigation }) {
                 data={utilisateurs}
                 keyExtractor={item => item.id}
                 keyboardShouldPersistTaps="handled"
-                style={{ maxHeight: 280 }}
+                style={{ maxHeight: 300 }}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[styles.userItem, { borderBottomColor: theme.border }]}
@@ -329,13 +396,17 @@ export default function MessagerieScreen({ navigation }) {
                     ) : (
                       <View style={[styles.avatar, styles.avatarPlaceholder]}>
                         <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>
-                          {(item.prenom || '?')[0].toUpperCase()}
+                          {(item.prenom || item.handle || '?')[0].toUpperCase()}
                         </Text>
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>{item.prenom}</Text>
-                      {item.handle && <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>}
+                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>
+                        {item.prenom}
+                      </Text>
+                      {item.handle && (
+                        <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>
+                      )}
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={theme.text3} />
                   </TouchableOpacity>
@@ -343,13 +414,15 @@ export default function MessagerieScreen({ navigation }) {
               />
             ) : rechercheUser.length >= 2 ? (
               <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-                <Ionicons name="person-outline" size={32} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>Aucun utilisateur trouvé</Text>
+                <Ionicons name="person-outline" size={36} color={theme.text3} />
+                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>
+                  Aucun utilisateur trouvé
+                </Text>
               </View>
             ) : (
-              <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-                <Ionicons name="people-outline" size={32} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+              <View style={{ alignItems: 'center', paddingVertical: 28 }}>
+                <Ionicons name="people-outline" size={36} color={theme.text3} />
+                <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 10, textAlign: 'center', lineHeight: 20 }}>
                   Tape le prénom ou le @handle{'\n'}d'un utilisateur Luma
                 </Text>
               </View>
@@ -372,9 +445,10 @@ const styles = StyleSheet.create({
   vide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 32 },
   nouveauBtnVide: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 12 },
   convItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingHorizontal: 16, borderBottomWidth: 0.5 },
-  convAvatar: { width: 50, height: 50, borderRadius: 25, flexShrink: 0 },
+  convAvatar: { width: 52, height: 52, borderRadius: 26, flexShrink: 0 },
   avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: { backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
+  badgeNonLus: { backgroundColor: '#2563EB', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, marginLeft: 6 },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100 },
   modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 12 },
   modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: 16 },
