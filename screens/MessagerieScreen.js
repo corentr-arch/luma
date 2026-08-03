@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, Image, ActivityIndicator, Platform, KeyboardAvoidingView,
+  TextInput, Image, ActivityIndicator, Platform, KeyboardAvoidingView, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useCallback } from 'react';
@@ -34,7 +34,11 @@ export default function MessagerieScreen({ navigation }) {
         .select('conversation_id')
         .eq('user_id', profil.id);
 
-      if (!memberships?.length) { setConversations([]); setChargement(false); return; }
+      if (!memberships?.length) {
+        setConversations([]);
+        setChargement(false);
+        return;
+      }
 
       const convIds = memberships.map(m => m.conversation_id);
 
@@ -68,7 +72,9 @@ export default function MessagerieScreen({ navigation }) {
       }));
 
       setConversations(convsCompletes);
-    } catch (e) { console.error('Erreur conversations:', e); }
+    } catch (e) {
+      console.error('Erreur conversations:', e);
+    }
     setChargement(false);
   };
 
@@ -92,8 +98,15 @@ export default function MessagerieScreen({ navigation }) {
     return () => clearTimeout(timer);
   }, [rechercheUser]);
 
-  const creerOuOuvrirConversation = async (autreUserId, autreProfile) => {
+  const creerOuOuvrirConversation = async (autreUser) => {
     if (!profil?.id) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      Alert.alert('Erreur', 'Session expirée, reconnecte-toi');
+      return;
+    }
+
     try {
       const { data: mesMembres } = await supabase
         .from('conversation_membres')
@@ -103,41 +116,44 @@ export default function MessagerieScreen({ navigation }) {
       const { data: saMembres } = await supabase
         .from('conversation_membres')
         .select('conversation_id')
-        .eq('user_id', autreUserId);
+        .eq('user_id', autreUser.id);
 
       const mesIds = new Set((mesMembres || []).map(m => m.conversation_id));
       const convCommune = (saMembres || []).find(m => mesIds.has(m.conversation_id));
 
       if (convCommune) {
         fermerModal();
-        // ✅ convId — correspond à ce qu'attend ConversationScreen
         navigation.navigate('Conversation', {
           convId: convCommune.conversation_id,
-          interlocuteur: autreProfile,
+          interlocuteur: autreUser,
         });
         return;
       }
 
-      const { data: nouvelleConv, error } = await supabase
+      const { data: nouvelleConv, error: errConv } = await supabase
         .from('conversations')
         .insert({ type: 'direct' })
-        .select()
+        .select('id')
         .single();
 
-      if (error || !nouvelleConv) return;
+      if (errConv || !nouvelleConv) {
+        Alert.alert('Erreur', errConv?.message || 'Impossible de créer la conversation');
+        return;
+      }
 
       await supabase.from('conversation_membres').insert([
         { conversation_id: nouvelleConv.id, user_id: profil.id },
-        { conversation_id: nouvelleConv.id, user_id: autreUserId },
+        { conversation_id: nouvelleConv.id, user_id: autreUser.id },
       ]);
 
       fermerModal();
-      // ✅ convId
       navigation.navigate('Conversation', {
         convId: nouvelleConv.id,
-        interlocuteur: autreProfile,
+        interlocuteur: autreUser,
       });
-    } catch (e) { console.error('Erreur:', e); }
+    } catch (e) {
+      Alert.alert('Erreur', String(e?.message || e));
+    }
   };
 
   const formatTemps = (dateStr) => {
@@ -306,7 +322,7 @@ export default function MessagerieScreen({ navigation }) {
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[styles.userItem, { borderBottomColor: theme.border }]}
-                    onPress={() => creerOuOuvrirConversation(item.id, item)}
+                    onPress={() => creerOuOuvrirConversation(item)}
                   >
                     {item.avatar_url ? (
                       <Image source={{ uri: item.avatar_url }} style={styles.avatar} />

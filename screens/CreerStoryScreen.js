@@ -2,11 +2,13 @@ import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   Image, Alert, ActivityIndicator, KeyboardAvoidingView,
   Platform, Dimensions, PanResponder, Animated, ScrollView,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useEffect } from 'react';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import { supabase } from '../supabase';
 import { useApp } from '../AppContext';
@@ -18,6 +20,8 @@ const TYPES = [
   { key: 'lieu',      label: '📍 Lieu',      couleur: '#8B5CF6' },
   { key: 'evenement', label: '🎉 Événement', couleur: '#2563EB' },
 ];
+
+const COULEURS_TEXTE = ['#FFFFFF', '#000000', '#FFD700', '#FF6B6B', '#4ECDC4', '#A855F7', '#2563EB'];
 
 export default function CreerStoryScreen({ navigation, route }) {
   const { facteurTexte } = useApp();
@@ -34,6 +38,8 @@ export default function CreerStoryScreen({ navigation, route }) {
   const mediaRef = useRef(null);
   const [mediaAffiche, setMediaAffiche] = useState(null);
   const [texte, setTexte] = useState('');
+  const [couleurTexte, setCouleurTexte] = useState('#FFFFFF');
+  const [tailleTexte, setTailleTexte] = useState(28);
   const [type, setType] = useState(
     lieuPrechoisit ? 'lieu' : evenementPrechoisit ? 'evenement' : 'spot'
   );
@@ -51,19 +57,33 @@ export default function CreerStoryScreen({ navigation, route }) {
   const [chargement, setChargement] = useState(false);
   const [etape, setEtape] = useState('media');
   const [editTexte, setEditTexte] = useState(false);
+  const [textePlace, setTextePlace] = useState(false);
 
-  const textePosX = useRef(new Animated.Value(W / 2 - 100)).current;
-  const textePosY = useRef(new Animated.Value(H * 0.35)).current;
+  // Position du texte draggable
+  const textePosX = useRef(new Animated.Value(0)).current;
+  const textePosY = useRef(new Animated.Value(0)).current;
+  const offsetX = useRef(0);
+  const offsetY = useRef(0);
+
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => textePlace && !editTexte,
+      onMoveShouldSetPanResponder: () => textePlace && !editTexte,
+      onPanResponderGrant: () => {
+        textePosX.setOffset(offsetX.current);
+        textePosY.setOffset(offsetY.current);
+        textePosX.setValue(0);
+        textePosY.setValue(0);
+      },
       onPanResponderMove: Animated.event(
         [null, { dx: textePosX, dy: textePosY }],
         { useNativeDriver: false }
       ),
-      onPanResponderRelease: () => {
-        textePosX.extractOffset();
-        textePosY.extractOffset();
+      onPanResponderRelease: (_, gesture) => {
+        offsetX.current += gesture.dx;
+        offsetY.current += gesture.dy;
+        textePosX.flattenOffset();
+        textePosY.flattenOffset();
       },
     })
   ).current;
@@ -124,7 +144,6 @@ export default function CreerStoryScreen({ navigation, route }) {
     setShowCamera(true);
   };
 
-  // ✅ Pas de flip du tout — expo-camera gère nativement
   const capturer = async () => {
     if (!cameraRef.current) return;
     try {
@@ -132,9 +151,18 @@ export default function CreerStoryScreen({ navigation, route }) {
         quality: 0.85,
         skipProcessing: false,
       });
+      let uriFinal = photo.uri;
+      if (facingCamera === 'front') {
+        const resultat = await ImageManipulator.manipulateAsync(
+          photo.uri,
+          [{ flip: ImageManipulator.FlipType.Horizontal }],
+          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        uriFinal = resultat.uri;
+      }
       setShowCamera(false);
-      mediaRef.current = { uri: photo.uri, type: 'image' };
-      setMediaAffiche({ uri: photo.uri, type: 'image' });
+      mediaRef.current = { uri: uriFinal, type: 'image' };
+      setMediaAffiche({ uri: uriFinal, type: 'image' });
       setEtape('edit');
     } catch {
       Alert.alert('Erreur', 'Impossible de prendre la photo');
@@ -159,11 +187,24 @@ export default function CreerStoryScreen({ navigation, route }) {
     }
   };
 
+  const validerTexte = () => {
+    if (texte.trim()) {
+      // Centre le texte au milieu de l'écran
+      offsetX.current = 0;
+      offsetY.current = 0;
+      textePosX.setValue(0);
+      textePosY.setValue(0);
+      setTextePlace(true);
+    }
+    setEditTexte(false);
+  };
+
   const publier = async () => {
     const currentMedia = mediaRef.current;
     if (!currentMedia) { Alert.alert('Erreur', 'Aucun média sélectionné'); return; }
-    const { data: { user: userFrais } } = await supabase.auth.getUser();
-    if (!userFrais) { Alert.alert('Erreur', 'Session expirée'); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { Alert.alert('Erreur', 'Session expirée'); return; }
+    const userFrais = session.user;
     setChargement(true);
     try {
       let lat = 48.8566, lon = 2.3522;
@@ -182,17 +223,10 @@ export default function CreerStoryScreen({ navigation, route }) {
       const ext = isVideo ? 'mp4' : 'jpg';
       const nomFichier = `${userFrais.id}/${Date.now()}.${ext}`;
       const formData = new FormData();
-      formData.append('file', {
-        uri: currentMedia.uri,
-        name: `story.${ext}`,
-        type: isVideo ? 'video/mp4' : 'image/jpeg',
-      });
+      formData.append('file', { uri: currentMedia.uri, name: `story.${ext}`, type: isVideo ? 'video/mp4' : 'image/jpeg' });
 
       const { error: uploadError } = await supabase.storage
-        .from('stories').upload(nomFichier, formData, {
-          contentType: isVideo ? 'video/mp4' : 'image/jpeg',
-          upsert: true,
-        });
+        .from('stories').upload(nomFichier, formData, { contentType: isVideo ? 'video/mp4' : 'image/jpeg', upsert: true });
       if (uploadError) { Alert.alert('Erreur upload', uploadError.message); setChargement(false); return; }
 
       const { data: urlData } = supabase.storage.from('stories').getPublicUrl(nomFichier);
@@ -218,34 +252,30 @@ export default function CreerStoryScreen({ navigation, route }) {
     setChargement(false);
   };
 
-  // ── Vue caméra ────────────────────────────────────────────────────────────
+  // ── Caméra ────────────────────────────────────────────────────────────────
   if (showCamera) {
     return (
       <View style={{ flex: 1, backgroundColor: '#000' }}>
-        {/* ✅ Pas de mirror prop — comportement natif iOS */}
         <CameraView
           ref={cameraRef}
           style={StyleSheet.absoluteFillObject}
           facing={facingCamera}
+          mirror={false}
         />
-
         <TouchableOpacity style={styles.camBtn} onPress={() => setShowCamera(false)}>
           <Ionicons name="close" size={26} color="#fff" />
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.camBtn, { left: undefined, right: 20 }]}
           onPress={() => setFacingCamera(f => f === 'back' ? 'front' : 'back')}
         >
           <Ionicons name="camera-reverse" size={26} color="#fff" />
         </TouchableOpacity>
-
         <View style={styles.camIndicateur}>
           <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
             {facingCamera === 'front' ? '🤳 Selfie' : '📷 Arrière'}
           </Text>
         </View>
-
         <TouchableOpacity style={styles.camCapture} onPress={capturer}>
           <View style={styles.camCaptureInner} />
         </TouchableOpacity>
@@ -273,13 +303,9 @@ export default function CreerStoryScreen({ navigation, route }) {
                 <Ionicons name="location" size={18} color="#8B5CF6" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: '#8B5CF6', fontSize: t(14), fontWeight: '600' }}>{lieuPrechoisit.nom}</Text>
-                  {lieuPrechoisit.adresse && (
-                    <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>{lieuPrechoisit.adresse}</Text>
-                  )}
+                  {lieuPrechoisit.adresse && <Text style={{ color: '#9CA3AF', fontSize: t(11), marginTop: 2 }}>{lieuPrechoisit.adresse}</Text>}
                 </View>
-                <View style={styles.lieuBadge}>
-                  <Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: '700' }}>AUTO</Text>
-                </View>
+                <View style={styles.lieuBadge}><Text style={{ color: '#8B5CF6', fontSize: 10, fontWeight: '700' }}>AUTO</Text></View>
               </View>
             ) : (
               <>
@@ -332,15 +358,10 @@ export default function CreerStoryScreen({ navigation, route }) {
               {TYPES.map(tp => (
                 <TouchableOpacity
                   key={tp.key}
-                  style={[styles.typePill, {
-                    backgroundColor: type === tp.key ? tp.couleur : '#1F2937',
-                    borderColor: type === tp.key ? tp.couleur : '#374151',
-                  }]}
+                  style={[styles.typePill, { backgroundColor: type === tp.key ? tp.couleur : '#1F2937', borderColor: type === tp.key ? tp.couleur : '#374151' }]}
                   onPress={() => setType(tp.key)}
                 >
-                  <Text style={{ color: '#fff', fontSize: t(12), fontWeight: type === tp.key ? '600' : '400' }}>
-                    {tp.label}
-                  </Text>
+                  <Text style={{ color: '#fff', fontSize: t(12), fontWeight: type === tp.key ? '600' : '400' }}>{tp.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -358,7 +379,6 @@ export default function CreerStoryScreen({ navigation, route }) {
               </View>
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
-
             <TouchableOpacity style={[styles.mediaBtn, { marginTop: 10, backgroundColor: '#1F2937' }]} onPress={choisirDepuisGalerie}>
               <View style={[styles.mediaBtnIcone, { backgroundColor: '#374151' }]}>
                 <Ionicons name="images" size={28} color="#fff" />
@@ -375,33 +395,61 @@ export default function CreerStoryScreen({ navigation, route }) {
     );
   }
 
-  // ── Étape 2 — Édition ─────────────────────────────────────────────────────
+  // ── Étape 2 — Édition style Instagram ─────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
+      {/* Image de fond */}
       {mediaAffiche && (
         <Image source={{ uri: mediaAffiche.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
       )}
 
-      {texte.length > 0 && !editTexte && (
+      {/* Zone tactile pour naviguer — ne capture pas les gestes sur le texte */}
+      {!editTexte && !textePlace && (
+        <View style={StyleSheet.absoluteFill} />
+      )}
+
+      {/* Texte déplaçable */}
+      {textePlace && texte.trim().length > 0 && !editTexte && (
         <Animated.View
-          style={[styles.texteFlottant, { transform: [{ translateX: textePosX }, { translateY: textePosY }] }]}
+          style={[
+            styles.texteFlottant,
+            {
+              transform: [{ translateX: textePosX }, { translateY: textePosY }],
+              top: H / 2 - 40,
+              left: 0,
+              right: 0,
+            }
+          ]}
           {...panResponder.panHandlers}
         >
-          <Text style={styles.texteFlottantTexte}>{texte}</Text>
+          <Text style={[styles.texteFlottantTexte, { color: couleurTexte, fontSize: tailleTexte }]}>
+            {texte}
+          </Text>
         </Animated.View>
       )}
 
+      {/* Header — boutons haut */}
       <View style={styles.headerEdition}>
-        <TouchableOpacity onPress={() => setEtape('media')} style={{ padding: 4 }}>
+        <TouchableOpacity onPress={() => setEtape('media')} style={styles.editIconBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
+
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          {/* Bouton texte */}
           <TouchableOpacity
-            style={[styles.editBtn, editTexte && { backgroundColor: '#fff' }]}
-            onPress={() => setEditTexte(v => !v)}
+            style={[styles.editIconBtn, editTexte && { backgroundColor: '#fff' }]}
+            onPress={() => {
+              if (editTexte) {
+                validerTexte();
+              } else {
+                setEditTexte(true);
+              }
+            }}
           >
-            <Ionicons name="text" size={18} color={editTexte ? '#111' : '#fff'} />
+            <Ionicons name="text" size={20} color={editTexte ? '#111' : '#fff'} />
           </TouchableOpacity>
+
+          {/* Publier */}
           <TouchableOpacity
             style={[styles.publierBtn, { opacity: chargement ? 0.7 : 1 }]}
             onPress={publier}
@@ -415,40 +463,88 @@ export default function CreerStoryScreen({ navigation, route }) {
         </View>
       </View>
 
+      {/* Éditeur de texte style Instagram */}
       {editTexte && (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.texteEditWrap}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="box-none"
+        >
+          {/* Overlay sombre */}
+          <View style={styles.texteEditorOverlay} />
+
+          {/* Champ texte centré */}
+          <View style={styles.texteEditorWrap}>
             <TextInput
-              style={styles.texteEditInput}
-              placeholder="Écris quelque chose..."
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              value={texte} onChangeText={setTexte}
-              maxLength={150} multiline autoFocus
+              style={[styles.texteEditorInput, { color: couleurTexte, fontSize: tailleTexte }]}
+              placeholder="Ajouter du texte..."
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={texte}
+              onChangeText={setTexte}
+              maxLength={150}
+              multiline
+              autoFocus
+              textAlign="center"
+              selectionColor={couleurTexte}
             />
-            <TouchableOpacity style={styles.texteEditOk} onPress={() => setEditTexte(false)}>
-              <Text style={{ color: '#fff', fontWeight: '600' }}>OK</Text>
+          </View>
+
+          {/* Contrôles en bas */}
+          <View style={styles.texteControles}>
+            {/* Taille du texte */}
+            <View style={styles.tailleBtns}>
+              <TouchableOpacity
+                style={styles.tailleBtn}
+                onPress={() => setTailleTexte(s => Math.max(16, s - 4))}
+              >
+                <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>A</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.tailleBtn}
+                onPress={() => setTailleTexte(s => Math.min(52, s + 4))}
+              >
+                <Text style={{ color: '#fff', fontSize: 26, fontWeight: '700' }}>A</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Couleurs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.couleursScroll}>
+              {COULEURS_TEXTE.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.couleurBtn, { backgroundColor: c }, couleurTexte === c && styles.couleurBtnActif]}
+                  onPress={() => setCouleurTexte(c)}
+                />
+              ))}
+            </ScrollView>
+
+            {/* Bouton OK */}
+            <TouchableOpacity style={styles.texteOkBtn} onPress={validerTexte}>
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>OK</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>{texte.length}/150</Text>
         </KeyboardAvoidingView>
       )}
 
-      {texte.length > 0 && !editTexte && (
-        <View style={styles.dragHint}>
-          <Text style={styles.dragHintTexte}>✋ Glisse le texte</Text>
-        </View>
-      )}
-
+      {/* Badge type */}
       <View style={[styles.typeBadge, { backgroundColor: TYPES.find(tp => tp.key === type)?.couleur }]}>
         <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>{TYPES.find(tp => tp.key === type)?.label}</Text>
       </View>
 
+      {/* Badge adresse */}
       {(adresse.trim().length > 0 || lieuPrechoisit || adresseLocale) && (
         <View style={styles.adresseBadge}>
           <Ionicons name="location" size={11} color="#fff" />
           <Text style={{ color: '#fff', fontSize: 11 }} numberOfLines={1}>
             {lieuPrechoisit?.nom || adresse || adresseLocale}
           </Text>
+        </View>
+      )}
+
+      {/* Hint déplacer */}
+      {textePlace && !editTexte && (
+        <View style={styles.dragHint}>
+          <Text style={styles.dragHintTexte}>✋ Glisse le texte</Text>
         </View>
       )}
     </View>
@@ -477,15 +573,22 @@ const styles = StyleSheet.create({
   camCapture: { position: 'absolute', bottom: 60, alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff', zIndex: 10 },
   camCaptureInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
   headerEdition: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, zIndex: 20 },
-  editBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)' },
+  editIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)' },
   publierBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#2563EB', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
-  texteFlottant: { position: 'absolute', zIndex: 15, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, maxWidth: W - 40 },
-  texteFlottantTexte: { color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  texteEditWrap: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20, backgroundColor: 'rgba(0,0,0,0.85)', padding: 16, paddingBottom: Platform.OS === 'ios' ? 40 : 16 },
-  texteEditInput: { flex: 1, color: '#fff', fontSize: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.3)', paddingVertical: 8, minHeight: 44, maxHeight: 120 },
-  texteEditOk: { backgroundColor: '#2563EB', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  dragHint: { position: 'absolute', bottom: 100, left: 0, right: 0, alignItems: 'center', zIndex: 10 },
-  dragHintTexte: { color: 'rgba(255,255,255,0.7)', fontSize: 13, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
+  texteFlottant: { position: 'absolute', zIndex: 15, alignItems: 'center', paddingHorizontal: 20 },
+  texteFlottantTexte: { fontWeight: '700', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  texteEditorOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 30 },
+  texteEditorWrap: { position: 'absolute', top: '30%', left: 20, right: 20, zIndex: 31, alignItems: 'center' },
+  texteEditorInput: { fontWeight: '700', textAlign: 'center', minWidth: 100, maxWidth: W - 40, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  texteControles: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 32, paddingBottom: Platform.OS === 'ios' ? 34 : 16, paddingHorizontal: 16, gap: 16 },
+  tailleBtns: { flexDirection: 'row', alignItems: 'center', gap: 16, justifyContent: 'center' },
+  tailleBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  couleursScroll: { gap: 10, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  couleurBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)' },
+  couleurBtnActif: { borderWidth: 3, borderColor: '#fff', transform: [{ scale: 1.2 }] },
+  texteOkBtn: { alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10, borderWidth: 1.5, borderColor: '#fff' },
   typeBadge: { position: 'absolute', top: 110, left: 16, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, zIndex: 15 },
   adresseBadge: { position: 'absolute', bottom: 40, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, zIndex: 15, justifyContent: 'center' },
+  dragHint: { position: 'absolute', bottom: 80, left: 0, right: 0, alignItems: 'center', zIndex: 10 },
+  dragHintTexte: { color: 'rgba(255,255,255,0.7)', fontSize: 13, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
 });
