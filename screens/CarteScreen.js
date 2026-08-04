@@ -1,6 +1,6 @@
 import {
   StyleSheet, View, Text, TouchableOpacity,
-  Animated, Share, ScrollView, Modal,
+  Animated, Share, ScrollView, Modal, TextInput,
 } from 'react-native';
 import MapView from 'react-native-map-clustering';
 import { Marker, Circle } from 'react-native-maps';
@@ -84,23 +84,13 @@ function getPlageDates(filtre, datePrecise) {
   }
 }
 
+// ── Marqueurs ─────────────────────────────────────────────────────────────────
+
 const MarqueurCommunautaire = memo(({ id, latitude, longitude, categorie, onPress }) => {
   const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
   return (
     <Marker coordinate={{ latitude, longitude }} onPress={(e) => { e.stopPropagation(); onPress(); }}
       tracksViewChanges={false} calloutEnabled={false} identifier={`ev_${id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={2}>
-      <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
-        <Ionicons name={cat.icone} size={14} color={cat.forte} />
-      </View>
-    </Marker>
-  );
-});
-
-const MarqueurFixe = memo(({ id, latitude, longitude, categorie, onPress }) => {
-  const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
-  return (
-    <Marker coordinate={{ latitude, longitude }} onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={false} calloutEnabled={false} identifier={`fix_${id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={2}>
       <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
         <Ionicons name={cat.icone} size={14} color={cat.forte} />
       </View>
@@ -135,19 +125,12 @@ const MarqueurLieu = memo(({ lieu, onPress }) => {
 });
 
 const MarqueurStory = memo(({ story, onPress }) => {
-  const couleur =
-    story.type === 'spot' ? '#EF4444' :
-    story.type === 'evenement' ? '#2563EB' : '#8B5CF6';
+  const couleur = story.type === 'spot' ? '#EF4444' : story.type === 'evenement' ? '#2563EB' : '#8B5CF6';
   return (
-    <Marker
-      coordinate={{ latitude: story.latitude, longitude: story.longitude }}
+    <Marker coordinate={{ latitude: story.latitude, longitude: story.longitude }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={false}
-      calloutEnabled={false}
-      identifier={`story_${story.id}`}
-      anchor={{ x: 0.5, y: 0.5 }}
-      zIndex={10}
-    >
+      tracksViewChanges={false} calloutEnabled={false}
+      identifier={`story_${story.id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={10}>
       <View pointerEvents="none" style={[styles.mStory, { borderColor: couleur }]}>
         <Ionicons name="camera" size={13} color={couleur} />
         <View style={[styles.mStoryDot, { backgroundColor: couleur }]} />
@@ -156,9 +139,11 @@ const MarqueurStory = memo(({ story, onPress }) => {
   );
 });
 
+// ── Écran principal ────────────────────────────────────────────────────────────
+
 export default function CarteScreen({ navigation }) {
   const { evenements, erreurReseau, chargerEvenements } = useEvenements();
-  const { theme, facteurTexte, ajouterFavori, estFavori, evenementCible, setEvenementCible } = useApp();
+  const { theme, facteurTexte, ajouterFavori, estFavori, evenementCible, setEvenementCible, profil } = useApp();
 
   const [pointSelectionne, setPointSelectionne] = useState(null);
   const [officielSelectionne, setOfficielSelectionne] = useState(null);
@@ -189,11 +174,18 @@ export default function CarteScreen({ navigation }) {
   const [pret, setPret] = useState(false);
   const [zoomSuffisant, setZoomSuffisant] = useState(false);
 
+  // ✅ Recherche d'adresse
+  const [showRecherche, setShowRecherche] = useState(false);
+  const [texteRecherche, setTexteRecherche] = useState('');
+  const [resultatsRecherche, setResultatsRecherche] = useState([]);
+  const [chargementRecherche, setChargementRecherche] = useState(false);
+
   const slideAnim = useRef(new Animated.Value(300)).current;
   const slideAnimOfficiel = useRef(new Animated.Value(300)).current;
   const slideAnimLieu = useRef(new Animated.Value(300)).current;
   const menuAnim = useRef(new Animated.Value(-300)).current;
   const mapRef = useRef(null);
+  const rechercheTimer = useRef(null);
   const t = (size) => size * facteurTexte;
 
   const chargerInterets = async () => {
@@ -201,9 +193,8 @@ export default function CarteScreen({ navigation }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: profil } = await supabase
-          .from('profiles').select('centres_interet').eq('id', user.id).single();
-        if (profil?.centres_interet?.length > 0) setFiltresCategories(profil.centres_interet);
+        const { data: p } = await supabase.from('profiles').select('centres_interet').eq('id', user.id).single();
+        if (p?.centres_interet?.length > 0) setFiltresCategories(p.centres_interet);
       }
     } catch {}
     setInteretsCharges(true);
@@ -237,6 +228,8 @@ export default function CarteScreen({ navigation }) {
         .eq('actif', true)
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
+        .gte('latitude', 48.1).lte('latitude', 49.2)   // ✅ IDF uniquement
+        .gte('longitude', 1.4).lte('longitude', 3.6)
         .gte('date_debut', maintenant)
         .order('date_debut', { ascending: true })
         .limit(2000);
@@ -263,23 +256,48 @@ export default function CarteScreen({ navigation }) {
     })();
   }, []);
 
-  // Recharge stories à chaque retour sur la carte
-  useFocusEffect(
-    useCallback(() => {
-      if (pret) chargerStories();
-    }, [pret])
-  );
+  useFocusEffect(useCallback(() => {
+    if (pret) chargerStories();
+  }, [pret]));
 
-  // Gestion événement cible depuis Explorer
-  useFocusEffect(
-    useCallback(() => {
-      if (!evenementCible || !pret) return;
-      const ev = evenementCible;
-      setEvenementCible(null);
-      recentrerSur(ev.latitude, ev.longitude);
-      setTimeout(() => ouvrirPopupEvenement(ev), 800);
-    }, [evenementCible, pret])
-  );
+  useFocusEffect(useCallback(() => {
+    if (!evenementCible || !pret) return;
+    const ev = evenementCible;
+    setEvenementCible(null);
+    recentrerSur(ev.latitude, ev.longitude);
+    setTimeout(() => ouvrirPopupEvenement(ev), 800);
+  }, [evenementCible, pret]));
+
+  // ✅ Recherche d'adresse via Nominatim
+  const rechercherAdresse = useCallback(async (texte) => {
+    if (!texte || texte.length < 2) { setResultatsRecherche([]); return; }
+    setChargementRecherche(true);
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(texte + ' Paris')}&format=json&limit=5&addressdetails=1`;
+      const r = await fetch(url, { headers: { 'User-Agent': 'LumaApp/1.0' } });
+      const data = await r.json();
+      setResultatsRecherche(data || []);
+    } catch {}
+    setChargementRecherche(false);
+  }, []);
+
+  useEffect(() => {
+    if (rechercheTimer.current) clearTimeout(rechercheTimer.current);
+    rechercheTimer.current = setTimeout(() => rechercherAdresse(texteRecherche), 500);
+    return () => clearTimeout(rechercheTimer.current);
+  }, [texteRecherche]);
+
+  const allerAdresse = (result) => {
+    const lat = parseFloat(result.lat);
+    const lon = parseFloat(result.lon);
+    setShowRecherche(false);
+    setTexteRecherche('');
+    setResultatsRecherche([]);
+    mapRef.current?.animateToRegion({
+      latitude: lat, longitude: lon,
+      latitudeDelta: 0.01, longitudeDelta: 0.01,
+    }, 600);
+  };
 
   const recentrerSur = useCallback((lat, lon) => {
     if (!mapRef.current) return;
@@ -289,10 +307,27 @@ export default function CarteScreen({ navigation }) {
     }, 500);
   }, []);
 
-  const centrerUser = () => {
-    if (!positionUser || !mapRef.current) return;
-    mapRef.current.animateToRegion({ ...positionUser, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600);
-  };
+  // ✅ Centrer sur ma position
+  const centrerSurMoi = useCallback(async () => {
+    if (mapRef.current && positionUser) {
+      mapRef.current.animateToRegion({
+        ...positionUser,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015,
+      }, 600);
+    } else {
+      // Tente de récupérer la position si pas encore disponible
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+          setPositionUser(pos);
+          mapRef.current?.animateToRegion({ ...pos, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 600);
+        }
+      } catch {}
+    }
+  }, [positionUser]);
 
   const fermerToutesPopups = useCallback(() => {
     setIdSelectionne(null); setCoordSurbrillance(null);
@@ -396,6 +431,9 @@ export default function CarteScreen({ navigation }) {
 
   const storiesFiltrees = afficherStories ? stories.filter(s => s.latitude && s.longitude) : [];
 
+  // ✅ Compteur d'éléments visibles
+  const totalVisible = evenementsFiltres.length + officielsFiltres.length + storiesFiltrees.length;
+
   const compterLieuxParCategorie = (nomCat) => {
     const config = LIEUX_CATEGORIES[nomCat];
     if (!config) return 0;
@@ -425,6 +463,7 @@ export default function CarteScreen({ navigation }) {
           <Ionicons name="location" size={26} color="#fff" />
         </View>
         <Text style={{ color: '#fff', fontSize: 22, fontWeight: '500' }}>Luma</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>Chargement de la carte...</Text>
       </View>
     );
   }
@@ -452,6 +491,7 @@ export default function CarteScreen({ navigation }) {
         onPress={() => {
           if (menuOuvert) fermerMenu();
           if (menuFabVisible) setMenuFabVisible(false);
+          if (showRecherche) { setShowRecherche(false); setTexteRecherche(''); }
           fermerToutesPopups();
         }}
         onRegionChangeComplete={(region) => {
@@ -470,18 +510,20 @@ export default function CarteScreen({ navigation }) {
           <MarqueurOfficiel key={`off_${ev.id}`} id={ev.id} latitude={ev.latitude}
             longitude={ev.longitude} categorie={ev.categorie} onPress={() => ouvrirPopupOfficiel(ev)} />
         ))}
-        {evenementsFiltres.map(p =>
-          p.type === 'fixe' ? (
-            <MarqueurFixe key={`fix_${p.id}`} id={p.id} latitude={p.latitude}
-              longitude={p.longitude} categorie={p.categorie} onPress={() => ouvrirPopupEvenement(p)} />
-          ) : (
-            <MarqueurCommunautaire key={`ev_${p.id}`} id={p.id} latitude={p.latitude}
-              longitude={p.longitude} categorie={p.categorie} onPress={() => ouvrirPopupEvenement(p)} />
-          )
-        )}
+        {evenementsFiltres.map(p => (
+          <MarqueurCommunautaire key={`ev_${p.id}`} id={p.id} latitude={p.latitude}
+            longitude={p.longitude} categorie={p.categorie} onPress={() => ouvrirPopupEvenement(p)} />
+        ))}
         {storiesFiltrees.map(story => (
           <MarqueurStory key={`story_${story.id}`} story={story}
-            onPress={() => { setStoriesSelectionnees([story]); setStoryViewerVisible(true); }} />
+            onPress={() => {
+              // ✅ Ouvre toutes les stories proches (dans 200m)
+              const proches = storiesFiltrees.filter(s =>
+                distanceKm(story.latitude, story.longitude, s.latitude, s.longitude) < 0.2
+              );
+              setStoriesSelectionnees(proches.length > 0 ? proches : [story]);
+              setStoryViewerVisible(true);
+            }} />
         ))}
         {coordSurbrillance && (
           <Marker key="surbrillance" coordinate={coordSurbrillance}
@@ -495,6 +537,7 @@ export default function CarteScreen({ navigation }) {
         )}
       </MapView>
 
+      {/* ── Bannière erreur réseau ── */}
       {erreurReseau && (
         <View style={styles.erreurBanner}>
           <Ionicons name="wifi-outline" size={14} color="#fff" />
@@ -505,6 +548,7 @@ export default function CarteScreen({ navigation }) {
         </View>
       )}
 
+      {/* ── Filtres actifs ── */}
       {nbFiltresActifs > 0 && (
         <View style={styles.filtresActifsWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -547,6 +591,7 @@ export default function CarteScreen({ navigation }) {
         </View>
       )}
 
+      {/* ── Header ── */}
       <View style={styles.header}>
         <TouchableOpacity
           style={[styles.logoBtn, { backgroundColor: 'rgba(255,255,255,0.96)' }]}
@@ -563,20 +608,81 @@ export default function CarteScreen({ navigation }) {
           )}
           <Ionicons name={menuOuvert ? 'chevron-up' : 'chevron-down'} size={13} color="#888" />
         </TouchableOpacity>
+
         <View style={{ flexDirection: 'row', gap: 8 }}>
+          {/* ✅ Bouton recherche adresse */}
           <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: positionUser ? '#DBEAFE' : 'rgba(255,255,255,0.96)' }]}
-            onPress={centrerUser}>
-            <Ionicons name="navigate" size={18} color={positionUser ? '#2563EB' : '#888'} />
+            style={[styles.iconBtn, { backgroundColor: showRecherche ? '#DBEAFE' : 'rgba(255,255,255,0.96)' }]}
+            onPress={() => { setShowRecherche(v => !v); if (!showRecherche) fermerMenu(); }}
+          >
+            <Ionicons name="search" size={18} color={showRecherche ? '#2563EB' : '#888'} />
           </TouchableOpacity>
+
+          {/* ✅ Bouton centrer sur moi — plus visible */}
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: positionUser ? '#2563EB' : 'rgba(255,255,255,0.96)' }]}
+            onPress={centrerSurMoi}
+          >
+            <Ionicons name="navigate" size={18} color={positionUser ? '#fff' : '#888'} />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.96)' }]}
-            onPress={() => navigation.navigate('Notifications')}>
+            onPress={() => navigation.navigate('Notifications')}
+          >
             <Ionicons name="notifications-outline" size={20} color="#111" />
           </TouchableOpacity>
         </View>
       </View>
 
+      {/* ✅ Barre de recherche d'adresse */}
+      {showRecherche && (
+        <View style={styles.rechercheContainer}>
+          <View style={styles.rechercheBar}>
+            <Ionicons name="search-outline" size={16} color="#888" />
+            <TextInput
+              style={styles.rechercheInput}
+              placeholder="Cherche une adresse, un lieu..."
+              placeholderTextColor="#aaa"
+              value={texteRecherche}
+              onChangeText={setTexteRecherche}
+              autoFocus
+              returnKeyType="search"
+            />
+            {texteRecherche.length > 0 && (
+              <TouchableOpacity onPress={() => { setTexteRecherche(''); setResultatsRecherche([]); }}>
+                <Ionicons name="close-circle" size={16} color="#aaa" />
+              </TouchableOpacity>
+            )}
+          </View>
+          {resultatsRecherche.length > 0 && (
+            <View style={styles.rechercheResultats}>
+              {resultatsRecherche.map((r, i) => (
+                <TouchableOpacity key={i}
+                  style={[styles.rechercheItem, i < resultatsRecherche.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: '#F0F0F0' }]}
+                  onPress={() => allerAdresse(r)}
+                >
+                  <Ionicons name="location-outline" size={14} color="#2563EB" />
+                  <Text style={{ color: '#111', fontSize: 13, flex: 1 }} numberOfLines={2}>
+                    {r.display_name.split(',').slice(0, 3).join(', ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* ✅ Compteur d'éléments */}
+      {!menuOuvert && !showRecherche && totalVisible > 0 && (
+        <View style={styles.compteur}>
+          <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>
+            {totalVisible} élément{totalVisible > 1 ? 's' : ''}
+          </Text>
+        </View>
+      )}
+
+      {/* ── Menu filtres ── */}
       {menuOuvert && (
         <Animated.View style={[styles.menu, { backgroundColor: theme.card, transform: [{ translateY: menuAnim }] }]}>
           <View style={[styles.menuHeader, { borderBottomColor: theme.border }]}>
@@ -638,10 +744,7 @@ export default function CarteScreen({ navigation }) {
                     const actif = lieuxCategoriesActives.includes(nom);
                     return (
                       <TouchableOpacity key={nom}
-                        style={[styles.lieuCatItem, {
-                          backgroundColor: actif ? config.couleur : theme.card,
-                          borderColor: actif ? config.couleur : theme.border,
-                        }]}
+                        style={[styles.lieuCatItem, { backgroundColor: actif ? config.couleur : theme.card, borderColor: actif ? config.couleur : theme.border }]}
                         onPress={() => toggleLieuCategorie(nom)}>
                         <Ionicons name={config.icone} size={14} color={actif ? '#fff' : config.couleur} />
                         <Text style={{ color: actif ? '#fff' : theme.text, fontSize: t(10), fontWeight: actif ? '500' : '400', marginTop: 3, textAlign: 'center' }} numberOfLines={2}>
@@ -743,6 +846,7 @@ export default function CarteScreen({ navigation }) {
         </Animated.View>
       )}
 
+      {/* ── Popup événement communautaire ── */}
       {pointSelectionne && catSel && (
         <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnim }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
@@ -772,7 +876,7 @@ export default function CarteScreen({ navigation }) {
             </View>
             {positionUser && (
               <Text style={{ color: theme.text3, fontSize: t(11) }}>
-                {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, pointSelectionne.latitude, pointSelectionne.longitude) * 10) / 10} km
+                📍 {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, pointSelectionne.latitude, pointSelectionne.longitude) * 10) / 10} km
               </Text>
             )}
           </View>
@@ -794,6 +898,7 @@ export default function CarteScreen({ navigation }) {
         </Animated.View>
       )}
 
+      {/* ── Popup événement officiel ── */}
       {officielSelectionne && configOfficiel && (
         <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnimOfficiel }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
@@ -819,18 +924,13 @@ export default function CarteScreen({ navigation }) {
             )}
           </View>
           {officielSelectionne.salle && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="location-outline" size={13} color={configOfficiel.forte} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Ionicons name="business-outline" size={13} color={configOfficiel.forte} />
               <Text style={{ color: configOfficiel.forte, fontSize: t(13), fontWeight: '500' }}>{officielSelectionne.salle}</Text>
             </View>
           )}
-          {officielSelectionne.description && (
-            <Text style={{ color: theme.text2, fontSize: t(13), lineHeight: 19, marginBottom: 8 }} numberOfLines={2}>
-              {officielSelectionne.description}
-            </Text>
-          )}
           {officielSelectionne.date_debut && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <Ionicons name="calendar-outline" size={13} color={configOfficiel.forte} />
               <Text style={{ color: configOfficiel.forte, fontSize: t(12), fontWeight: '500' }}>
                 {formatDateParis(officielSelectionne.date_debut)}
@@ -838,14 +938,14 @@ export default function CarteScreen({ navigation }) {
             </View>
           )}
           {officielSelectionne.lieu && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <Ionicons name="location-outline" size={13} color={theme.text3} />
               <Text style={{ color: theme.text2, fontSize: t(12), flex: 1 }} numberOfLines={1}>{officielSelectionne.lieu}</Text>
             </View>
           )}
           {positionUser && officielSelectionne.latitude && (
             <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 10 }}>
-              {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
+              📍 {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
                 parseFloat(officielSelectionne.latitude), parseFloat(officielSelectionne.longitude)) * 10) / 10} km
             </Text>
           )}
@@ -863,6 +963,7 @@ export default function CarteScreen({ navigation }) {
         </Animated.View>
       )}
 
+      {/* ── Popup lieu ── */}
       {lieuSelectionne && configLieuSel && (
         <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnimLieu }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
@@ -887,7 +988,7 @@ export default function CarteScreen({ navigation }) {
           )}
           {positionUser && lieuSelectionne.latitude && (
             <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 10 }}>
-              {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
+              📍 {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
                 parseFloat(lieuSelectionne.latitude), parseFloat(lieuSelectionne.longitude)) * 10) / 10} km
             </Text>
           )}
@@ -909,6 +1010,7 @@ export default function CarteScreen({ navigation }) {
         </Animated.View>
       )}
 
+      {/* ── FAB menu ── */}
       {menuFabVisible && (
         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setMenuFabVisible(false)} activeOpacity={1} />
       )}
@@ -933,11 +1035,12 @@ export default function CarteScreen({ navigation }) {
 
       <TouchableOpacity
         style={[styles.fab, menuFabVisible && { backgroundColor: '#EF4444' }]}
-        onPress={() => { setMenuFabVisible(v => !v); if (menuOuvert) fermerMenu(); }}
+        onPress={() => { setMenuFabVisible(v => !v); if (menuOuvert) fermerMenu(); if (showRecherche) setShowRecherche(false); }}
       >
         <Ionicons name={menuFabVisible ? 'close' : 'add'} size={26} color="#fff" />
       </TouchableOpacity>
 
+      {/* ── Story Viewer ── */}
       {storyViewerVisible && storiesSelectionnees.length > 0 && (
         <Modal visible animationType="fade" statusBarTranslucent>
           <StoryViewer
@@ -971,7 +1074,15 @@ const styles = StyleSheet.create({
   logoIcone: { width: 20, height: 20, borderRadius: 6, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
   logoTexte: { fontWeight: '500', color: '#111' },
   filtreCount: { backgroundColor: '#EF4444', borderRadius: 10, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  // ✅ Recherche
+  rechercheContainer: { position: 'absolute', top: 100, left: 16, right: 16, zIndex: 15 },
+  rechercheBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 8 },
+  rechercheInput: { flex: 1, color: '#111', fontSize: 14 },
+  rechercheResultats: { backgroundColor: '#fff', borderRadius: 14, marginTop: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 6, overflow: 'hidden' },
+  rechercheItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 },
+  // ✅ Compteur
+  compteur: { position: 'absolute', top: 100, left: 16, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, zIndex: 4 },
   menu: { position: 'absolute', top: 96, left: 16, width: 285, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 8, maxHeight: 600, zIndex: 9 },
   menuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 0.5 },
   menuTitre: { fontWeight: '500' },

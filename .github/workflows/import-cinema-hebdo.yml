@@ -1,18 +1,25 @@
 name: Import programmation cinémas
+
 on:
   schedule:
-    - cron: '0 5 * * 1'  # Tous les lundis à 5h
+    - cron: '0 3 * * 1'  # Lundis à 3h (avant le workflow principal à 4h)
   workflow_dispatch:
 
 jobs:
   import:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
       - name: Import cinémas
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

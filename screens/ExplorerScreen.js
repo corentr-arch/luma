@@ -1,9 +1,9 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  FlatList, Image, TextInput, Modal,
+  FlatList, Image, TextInput, Modal, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useRef } from 'react';
 import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEvenements } from '../EvenementsContext';
@@ -21,6 +21,8 @@ const CATEGORIES_LIEUX = [
   { key: 'marche',   label: 'Marchés',   icon: 'storefront',    couleur: '#EF4444', bg: '#FEE2E2', sousCats: ['Marché'] },
 ];
 
+const PAGE_SIZE = 30;
+
 function formatDate(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -28,7 +30,7 @@ function formatDate(dateStr) {
   const dem = new Date(auj); dem.setDate(dem.getDate() + 1);
   if (d >= auj && d < dem) return `Auj. ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
   if (d >= dem && d < new Date(dem.getTime() + 86400000)) return `Dem. ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 function distanceKm(lat1, lon1, lat2, lon2) {
@@ -39,8 +41,11 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-const CarteEvenementOfficiel = memo(({ item, t, onPress }) => {
+const CarteEvenementOfficiel = memo(({ item, t, onPress, positionUser }) => {
   const cat = CATEGORIES[item.categorie] || { claire: '#DBEAFE', forte: '#2563EB', texte: '#1E40AF', icone: 'calendar-outline' };
+  const dist = positionUser && item.latitude && item.longitude
+    ? Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10
+    : null;
   return (
     <TouchableOpacity style={[styles.evCard, { borderLeftColor: cat.forte }]} onPress={() => onPress(item)} activeOpacity={0.7}>
       <View style={styles.evCardHaut}>
@@ -54,12 +59,17 @@ const CarteEvenementOfficiel = memo(({ item, t, onPress }) => {
         <View style={{ flex: 1 }}>
           <Text style={{ color: '#111', fontSize: t(14), fontWeight: '500', marginBottom: 3 }} numberOfLines={2}>{item.titre}</Text>
           {item.lieu && <Text style={{ color: '#888', fontSize: t(12), marginBottom: 3 }} numberOfLines={1}>{item.lieu}</Text>}
-          {item.date_debut && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Ionicons name="calendar-outline" size={11} color={cat.forte} />
-              <Text style={{ color: cat.forte, fontSize: t(11), fontWeight: '500' }}>{formatDate(item.date_debut)}</Text>
-            </View>
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {item.date_debut && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Ionicons name="calendar-outline" size={11} color={cat.forte} />
+                <Text style={{ color: cat.forte, fontSize: t(11), fontWeight: '500' }}>{formatDate(item.date_debut)}</Text>
+              </View>
+            )}
+            {dist !== null && (
+              <Text style={{ color: '#aaa', fontSize: t(11) }}>{dist} km</Text>
+            )}
+          </View>
           <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
             <View style={[styles.badge, { backgroundColor: cat.claire }]}>
               <Text style={{ color: cat.texte, fontSize: t(10), fontWeight: '500' }}>{item.categorie}</Text>
@@ -86,7 +96,11 @@ const CarteEvenementCommunautaire = memo(({ item, t, positionUser, onPress, onVo
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ color: '#111', fontSize: t(14), fontWeight: '500', marginBottom: 3 }} numberOfLines={1}>{item.titre}</Text>
-          {item.lieu && <Text style={{ color: '#888', fontSize: t(12), marginBottom: 3 }} numberOfLines={1}>{item.lieu}{dist !== null ? ` · ${dist} km` : ''}</Text>}
+          {item.lieu && (
+            <Text style={{ color: '#888', fontSize: t(12), marginBottom: 3 }} numberOfLines={1}>
+              {item.lieu}{dist !== null ? ` · ${dist} km` : ''}
+            </Text>
+          )}
           {item.date_evenement && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Ionicons name="time-outline" size={11} color="#2563EB" />
@@ -100,7 +114,9 @@ const CarteEvenementCommunautaire = memo(({ item, t, positionUser, onPress, onVo
             </View>
             <View style={[styles.badge, { backgroundColor: '#DCFCE7' }]}>
               <Ionicons name="people-outline" size={10} color="#15803D" />
-              <Text style={{ color: '#15803D', fontSize: t(10) }}>{item.sans_max ? String(item.participants || 0) : `${item.participants || 0}/${item.max || '?'}`}</Text>
+              <Text style={{ color: '#15803D', fontSize: t(10) }}>
+                {item.sans_max ? String(item.participants || 0) : `${item.participants || 0}/${item.max || '?'}`}
+              </Text>
             </View>
           </View>
         </View>
@@ -117,27 +133,47 @@ const CarteEvenementCommunautaire = memo(({ item, t, positionUser, onPress, onVo
 
 export default function ExplorerScreen({ navigation }) {
   const { evenements } = useEvenements();
-  const { theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES, setEvenementCible } = useApp();
+  const { theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES, setEvenementCible, profil } = useApp();
   const t = (s) => s * facteurTexte;
 
   const [onglet, setOnglet] = useState('pourToi');
   const [recherche, setRecherche] = useState('');
   const [positionUser, setPositionUser] = useState(null);
+
+  // Événements officiels avec pagination
   const [evenementsOfficiels, setEvenementsOfficiels] = useState([]);
+  const [chargement, setChargement] = useState(false);
+  const [chargementPlus, setChargementPlus] = useState(false);
+  const [refresh, setRefresh] = useState(false);
+  const [pageActuelle, setPageActuelle] = useState(0);
+  const [totalOff, setTotalOff] = useState(0);
+  const offsetRef = useRef(0);
+
+  // Lieux
   const [lieux, setLieux] = useState([]);
-  const [stories, setStories] = useState([]);
-  const [storyViewerVisible, setStoryViewerVisible] = useState(false);
-  const [storiesSelectionnees, setStoriesSelectionnees] = useState([]);
   const [categorieActive, setCategorieActive] = useState(null);
   const [lieuxFiltres, setLieuxFiltres] = useState([]);
   const [rechercheLieu, setRechercheLieu] = useState('');
+
+  // Stories
+  const [stories, setStories] = useState([]);
+  const [storyViewerVisible, setStoryViewerVisible] = useState(false);
+  const [storiesIndex, setStoriesIndex] = useState(0);
+
+  // Recherche film
   const [rechercheFilm, setRechercheFilm] = useState('');
   const [modeRechercheFilm, setModeRechercheFilm] = useState(false);
   const [resultatsFilm, setResultatsFilm] = useState([]);
+
+  // Filtres agenda
   const [filtreDate, setFiltreDate] = useState('tous');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePrecise, setDatePrecise] = useState(new Date());
   const [filtreGratuit, setFiltreGratuit] = useState(false);
+  const [filtreCategorie, setFiltreCategorie] = useState(null);
+
+  // Pour toi
+  const [evPourToi, setEvPourToi] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -147,22 +183,94 @@ export default function ExplorerScreen({ navigation }) {
         setPositionUser({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
       }
     })();
-    chargerOfficiels();
+    chargerOfficiels(0, true);
     chargerLieux();
     chargerStories();
   }, []);
 
-  const chargerOfficiels = async () => {
+  // Recharge "Pour toi" quand profil chargé
+  useEffect(() => {
+    if (profil?.interets?.length > 0 || profil?.centres_interet?.length > 0) {
+      chargerPourToi();
+    }
+  }, [profil]);
+
+  const chargerPourToi = async () => {
+    const interets = profil?.interets || profil?.centres_interet || [];
+    if (!interets.length) return;
+
+    // Mappe les intérêts vers les catégories d'événements
+    const categoriesMap = {
+      'Musique': ['Musique', 'Concert'],
+      'Cinéma': ['Cinéma', 'Film'],
+      'Théâtre': ['Théâtre', 'Spectacle'],
+      'Sport': ['Sport', 'Sportif'],
+      'Art': ['Art', 'Exposition', 'Musée'],
+      'Nature & Bien-être': ['Nature', 'Bien-être', 'Yoga'],
+      'Apéro': ['Apéro', 'Fête', 'Soirée'],
+      'Famille': ['Famille', 'Enfants', 'Jeunesse'],
+      'Marché': ['Marché', 'Brocante', 'Vide-grenier'],
+      'Cours': ['Cours', 'Atelier', 'Formation'],
+      'Entraide': ['Entraide', 'Solidarité', 'Bénévolat'],
+      'Gaming': ['Gaming', 'Jeux'],
+    };
+
+    const categoriesRecherche = interets.flatMap(i => categoriesMap[i] || [i]);
+
     try {
       const { data } = await supabase
         .from('evenements_officiels')
         .select('*')
         .eq('actif', true)
         .gte('date_debut', new Date().toISOString())
+        .in('categorie', categoriesRecherche)
         .order('date_debut', { ascending: true })
-        .limit(2000);
-      if (data) setEvenementsOfficiels(data);
+        .limit(50);
+      if (data) setEvPourToi(data);
     } catch {}
+  };
+
+  const chargerOfficiels = async (offset = 0, reset = false) => {
+    if (reset) setChargement(true);
+    else setChargementPlus(true);
+
+    try {
+      const maintenant = new Date().toISOString();
+      const { data, count } = await supabase
+        .from('evenements_officiels')
+        .select('*', { count: 'exact' })
+        .eq('actif', true)
+        .gte('date_debut', maintenant)
+        // ✅ Filtre Île-de-France uniquement
+        .gte('latitude', 48.1)
+        .lte('latitude', 49.2)
+        .gte('longitude', 1.4)
+        .lte('longitude', 3.6)
+        .order('date_debut', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+
+      if (data) {
+        if (reset) setEvenementsOfficiels(data);
+        else setEvenementsOfficiels(prev => [...prev, ...data]);
+        setTotalOff(count || 0);
+        offsetRef.current = offset + data.length;
+      }
+    } catch {}
+
+    if (reset) setChargement(false);
+    else setChargementPlus(false);
+  };
+
+  const chargerPlus = () => {
+    if (chargementPlus || offsetRef.current >= totalOff) return;
+    chargerOfficiels(offsetRef.current);
+  };
+
+  const onRefresh = async () => {
+    setRefresh(true);
+    await chargerOfficiels(0, true);
+    await chargerStories();
+    setRefresh(false);
   };
 
   const chargerLieux = async () => {
@@ -171,8 +279,13 @@ export default function ExplorerScreen({ navigation }) {
         .from('lieux_officiels')
         .select('*')
         .not('latitude', 'is', null)
+        // ✅ Filtre Paris uniquement
+        .gte('latitude', 48.7)
+        .lte('latitude', 49.0)
+        .gte('longitude', 2.0)
+        .lte('longitude', 2.7)
         .order('nom', { ascending: true })
-        .limit(1000);
+        .limit(500);
       if (data) setLieux(data);
     } catch {}
   };
@@ -180,13 +293,17 @@ export default function ExplorerScreen({ navigation }) {
   const chargerStories = async () => {
     try {
       const { data } = await supabase
-        .from('stories').select('*').eq('actif', true)
+        .from('stories')
+        .select('*, profiles(id, prenom, avatar_url)')
+        .eq('actif', true)
         .gte('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false }).limit(50);
+        .order('created_at', { ascending: false })
+        .limit(50);
       if (data) setStories(data);
     } catch {}
   };
 
+  // Recherche film → cinémas
   const rechercherFilm = useCallback(async (titre) => {
     if (!titre || titre.length < 2) { setResultatsFilm([]); return; }
     try {
@@ -197,11 +314,15 @@ export default function ExplorerScreen({ navigation }) {
         .gte('date_seance', new Date().toISOString())
         .order('date_seance', { ascending: true })
         .limit(100);
+
       if (data) {
         const filmsMap = {};
         data.forEach(s => {
           if (!filmsMap[s.film_titre]) {
-            filmsMap[s.film_titre] = { titre: s.film_titre, affiche: s.film_affiche, note: s.film_note, cinemas: new Set() };
+            filmsMap[s.film_titre] = {
+              titre: s.film_titre, affiche: s.film_affiche,
+              note: s.film_note, cinemas: new Set(),
+            };
           }
           filmsMap[s.film_titre].cinemas.add(s.cinema_nom);
         });
@@ -215,6 +336,7 @@ export default function ExplorerScreen({ navigation }) {
     return () => clearTimeout(timer);
   }, [rechercheFilm]);
 
+  // Filtrage lieux
   useEffect(() => {
     if (!categorieActive) { setLieuxFiltres([]); return; }
     const config = CATEGORIES_LIEUX.find(c => c.key === categorieActive);
@@ -228,9 +350,18 @@ export default function ExplorerScreen({ navigation }) {
         l.adresse?.toLowerCase().includes(rechercheLieu.toLowerCase())
       );
     }
+    // Trie par distance si position disponible
+    if (positionUser) {
+      filtres = filtres.sort((a, b) => {
+        const dA = distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(a.latitude), parseFloat(a.longitude));
+        const dB = distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(b.latitude), parseFloat(b.longitude));
+        return dA - dB;
+      });
+    }
     setLieuxFiltres(filtres);
-  }, [categorieActive, lieux, rechercheLieu]);
+  }, [categorieActive, lieux, rechercheLieu, positionUser]);
 
+  // Filtrage agenda
   const getPlage = () => {
     const auj = new Date(); auj.setHours(0, 0, 0, 0);
     if (filtreDate === 'ce_soir') { const f = new Date(auj); f.setHours(23, 59, 59, 999); return { d: new Date(), f }; }
@@ -243,14 +374,20 @@ export default function ExplorerScreen({ navigation }) {
   const agendaFiltres = evenementsOfficiels.filter(ev => {
     const matchR = !recherche || ev.titre?.toLowerCase().includes(recherche.toLowerCase()) || ev.lieu?.toLowerCase().includes(recherche.toLowerCase());
     const matchG = !filtreGratuit || ev.gratuit;
+    const matchC = !filtreCategorie || ev.categorie === filtreCategorie;
     const plage = getPlage();
     const matchD = !plage || (ev.date_debut && new Date(ev.date_debut) >= plage.d && new Date(ev.date_debut) <= plage.f);
-    return matchR && matchG && matchD;
+    return matchR && matchG && matchC && matchD;
   });
 
   const communautairesFiltres = evenements.filter(ev =>
     !recherche || ev.titre?.toLowerCase().includes(recherche.toLowerCase()) || ev.lieu?.toLowerCase().includes(recherche.toLowerCase())
   );
+
+  // Événements "Pour toi" — combine intérêts + proximité
+  const evPourToiAffich = evPourToi.length > 0
+    ? evPourToi
+    : evenementsOfficiels.slice(0, 20);
 
   const voirSurCarte = useCallback((ev) => { setEvenementCible(ev); navigation.navigate('Carte'); }, [navigation, setEvenementCible]);
   const allerDetailOfficiel = useCallback((ev) => navigation.navigate('DetailEvenementOfficiel', { evenement: ev }), [navigation]);
@@ -259,16 +396,25 @@ export default function ExplorerScreen({ navigation }) {
 
   const configActive = CATEGORIES_LIEUX.find(c => c.key === categorieActive);
 
+  // Catégories uniques pour filtre agenda
+  const categoriesAgenda = [...new Set(evenementsOfficiels.map(e => e.categorie).filter(Boolean))].sort();
+
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
+
+      {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <Text style={[styles.titre, { color: theme.text }]}>Explorer</Text>
-        <TouchableOpacity style={styles.creerStoryBtnHeader} onPress={() => navigation.navigate('CreerStory')}>
+        <TouchableOpacity
+          style={styles.creerStoryBtnHeader}
+          onPress={() => navigation.navigate('CreerStory')}
+        >
           <Ionicons name="camera" size={18} color="#fff" />
           <Text style={{ color: '#fff', fontSize: t(12), fontWeight: '600' }}>Story</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Onglets */}
       <View style={[styles.ongletsWrap, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ongletsScroll}>
           {[
@@ -277,9 +423,11 @@ export default function ExplorerScreen({ navigation }) {
             { key: 'agenda',     label: '📅 Agenda' },
             { key: 'communaute', label: '👥 Communauté' },
           ].map(o => (
-            <TouchableOpacity key={o.key}
+            <TouchableOpacity
+              key={o.key}
               style={[styles.onglet, onglet === o.key && styles.ongletActif]}
-              onPress={() => setOnglet(o.key)}>
+              onPress={() => { setOnglet(o.key); setRecherche(''); }}
+            >
               <Text style={[styles.ongletTexte, { color: onglet === o.key ? '#fff' : theme.text3, fontSize: t(13) }]}>
                 {o.label}
               </Text>
@@ -291,31 +439,38 @@ export default function ExplorerScreen({ navigation }) {
       {/* ── POUR TOI ── */}
       {onglet === 'pourToi' && (
         <FlatList
-          data={evenementsOfficiels.slice(0, 50)}
-          keyExtractor={item => `off_${item.id}`}
+          data={evPourToiAffich}
+          keyExtractor={item => `pt_${item.id}`}
+          refreshControl={<RefreshControl refreshing={refresh} onRefresh={onRefresh} />}
           ListHeaderComponent={
             <>
-              {stories.length > 0 ? (
+              {/* Stories */}
+              {stories.length > 0 && (
                 <View style={{ borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
                   <StoriesBar
                     stories={stories}
-                    onPress={(s) => { setStoriesSelectionnees(s); setStoryViewerVisible(true); }}
+                    onPress={(index) => { setStoriesIndex(index); setStoryViewerVisible(true); }}
                     onCreer={() => navigation.navigate('CreerStory')}
                     t={t}
                   />
                 </View>
-              ) : (
+              )}
+
+              {/* Banner créer story si 0 stories */}
+              {stories.length === 0 && (
                 <TouchableOpacity style={styles.creerStoryBanner} onPress={() => navigation.navigate('CreerStory')}>
                   <View style={styles.creerStoryBannerIcone}>
                     <Ionicons name="camera" size={22} color="#fff" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#111', fontSize: t(14), fontWeight: '600' }}>Partage ta story</Text>
-                    <Text style={{ color: '#888', fontSize: t(12) }}>Photo ou vidéo — visible 24h</Text>
+                    <Text style={{ color: '#111', fontSize: t(15), fontWeight: '600' }}>Partage ta story</Text>
+                    <Text style={{ color: '#888', fontSize: t(12) }}>Photo ou vidéo — visible 24h sur la carte</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color="#888" />
                 </TouchableOpacity>
               )}
+
+              {/* Événements communautaires proches */}
               {evenements.slice(0, 3).length > 0 && (
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 }}>
                   <View style={styles.sectionTitre}>
@@ -325,15 +480,23 @@ export default function ExplorerScreen({ navigation }) {
                     </TouchableOpacity>
                   </View>
                   {evenements.slice(0, 3).map(ev => (
-                    <CarteEvenementCommunautaire key={ev.id} item={ev} t={t} positionUser={positionUser}
+                    <CarteEvenementCommunautaire
+                      key={ev.id} item={ev} t={t}
+                      positionUser={positionUser}
                       onPress={allerDetail} onVoirCarte={voirSurCarte}
-                      CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES} />
+                      CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES}
+                    />
                   ))}
                 </View>
               )}
+
               <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
                 <View style={styles.sectionTitre}>
-                  <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>À l'affiche 🎭</Text>
+                  <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>
+                    {profil?.interets?.length > 0 || profil?.centres_interet?.length > 0
+                      ? '✨ Sélectionné pour toi'
+                      : '🎭 À l\'affiche'}
+                  </Text>
                   <TouchableOpacity onPress={() => setOnglet('agenda')}>
                     <Text style={{ color: '#2563EB', fontSize: t(12) }}>Voir tout</Text>
                   </TouchableOpacity>
@@ -343,11 +506,22 @@ export default function ExplorerScreen({ navigation }) {
           }
           renderItem={({ item }) => (
             <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-              <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} />
+              <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} positionUser={positionUser} />
             </View>
           )}
+          ListEmptyComponent={
+            chargement ? null : (
+              <View style={styles.vide}>
+                <Ionicons name="calendar-outline" size={40} color={theme.text3} />
+                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>Aucun événement</Text>
+              </View>
+            )
+          }
           contentContainerStyle={{ paddingBottom: 20 }}
-          removeClippedSubviews maxToRenderPerBatch={10} windowSize={10}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          initialNumToRender={10}
         />
       )}
 
@@ -357,12 +531,18 @@ export default function ExplorerScreen({ navigation }) {
           <View style={[styles.catsContainer, { borderBottomColor: theme.border }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catsScroll}>
               {CATEGORIES_LIEUX.map(cat => (
-                <TouchableOpacity key={cat.key}
+                <TouchableOpacity
+                  key={cat.key}
                   style={[styles.catPill, {
                     backgroundColor: categorieActive === cat.key ? cat.couleur : theme.card,
                     borderColor: cat.couleur,
                   }]}
-                  onPress={() => { setCategorieActive(categorieActive === cat.key ? null : cat.key); setRechercheLieu(''); setModeRechercheFilm(false); setRechercheFilm(''); }}>
+                  onPress={() => {
+                    setCategorieActive(categorieActive === cat.key ? null : cat.key);
+                    setRechercheLieu('');
+                    setModeRechercheFilm(false);
+                  }}
+                >
                   <Ionicons name={cat.icon} size={16} color={categorieActive === cat.key ? '#fff' : cat.couleur} />
                   <Text style={{ color: categorieActive === cat.key ? '#fff' : theme.text, fontSize: t(13), fontWeight: '500' }}>
                     {cat.label}
@@ -372,25 +552,26 @@ export default function ExplorerScreen({ navigation }) {
             </ScrollView>
           </View>
 
+          {/* Barre recherche */}
           {categorieActive && (
-            <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: modeRechercheFilm && categorieActive === 'cinema' ? '#9F1239' : theme.border }]}>
+            <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: categorieActive === 'cinema' && modeRechercheFilm ? '#9F1239' : theme.border }]}>
               <Ionicons name="search-outline" size={15} color={theme.text3} />
               <TextInput
                 style={[styles.searchInput, { color: theme.text, fontSize: t(13) }]}
-                placeholder={categorieActive === 'cinema' && modeRechercheFilm ? 'Cherche un film...' : `Cherche un ${configActive?.label.toLowerCase() || 'lieu'}...`}
+                placeholder={
+                  categorieActive === 'cinema' && modeRechercheFilm
+                    ? 'Cherche un film...'
+                    : `Cherche un ${configActive?.label.toLowerCase().replace('s', '') || 'lieu'}...`
+                }
                 placeholderTextColor={theme.text3}
                 value={categorieActive === 'cinema' && modeRechercheFilm ? rechercheFilm : rechercheLieu}
                 onChangeText={categorieActive === 'cinema' && modeRechercheFilm ? setRechercheFilm : setRechercheLieu}
               />
-              {((categorieActive === 'cinema' && modeRechercheFilm ? rechercheFilm : rechercheLieu).length > 0) && (
-                <TouchableOpacity onPress={() => { setRechercheFilm(''); setRechercheLieu(''); }}>
-                  <Ionicons name="close-circle" size={15} color={theme.text3} />
-                </TouchableOpacity>
-              )}
               {categorieActive === 'cinema' && (
                 <TouchableOpacity
                   style={[styles.switchModeBtn, { backgroundColor: modeRechercheFilm ? '#9F1239' : theme.bg }]}
-                  onPress={() => { setModeRechercheFilm(v => !v); setRechercheFilm(''); setRechercheLieu(''); }}>
+                  onPress={() => { setModeRechercheFilm(v => !v); setRechercheFilm(''); setRechercheLieu(''); }}
+                >
                   <Text style={{ color: modeRechercheFilm ? '#fff' : theme.text3, fontSize: t(10), fontWeight: '500' }}>
                     {modeRechercheFilm ? '🎬 Film' : '📍 Lieu'}
                   </Text>
@@ -399,7 +580,8 @@ export default function ExplorerScreen({ navigation }) {
             </View>
           )}
 
-          {modeRechercheFilm && categorieActive === 'cinema' ? (
+          {/* Résultats film */}
+          {categorieActive === 'cinema' && modeRechercheFilm ? (
             <FlatList
               data={resultatsFilm}
               keyExtractor={(item, i) => `film_${i}`}
@@ -429,9 +611,11 @@ export default function ExplorerScreen({ navigation }) {
                   {item.cinemas.map((cinema, i) => {
                     const lieu = lieux.find(l => l.nom === cinema);
                     return (
-                      <TouchableOpacity key={i}
+                      <TouchableOpacity
+                        key={i}
                         style={[styles.filmCinemaLigne, { borderTopColor: theme.border }]}
-                        onPress={() => lieu && allerDetailLieu(lieu)}>
+                        onPress={() => lieu && allerDetailLieu(lieu)}
+                      >
                         <Ionicons name="location-outline" size={13} color="#9F1239" />
                         <Text style={{ color: theme.text, fontSize: t(13), flex: 1 }}>{cinema}</Text>
                         {lieu && <Ionicons name="chevron-forward" size={14} color="#9F1239" />}
@@ -442,12 +626,12 @@ export default function ExplorerScreen({ navigation }) {
               )}
               ListEmptyComponent={
                 <View style={styles.vide}>
-                  <Ionicons name={rechercheFilm.length > 1 ? 'film-outline' : 'search'} size={40} color={theme.text3} />
+                  <Ionicons name={rechercheFilm.length > 1 ? 'film-outline' : 'search'} size={36} color={theme.text3} />
                   <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500', marginTop: 10 }}>
                     {rechercheFilm.length > 1 ? 'Aucun film trouvé' : 'Cherche un film'}
                   </Text>
                   <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 4, textAlign: 'center' }}>
-                    {rechercheFilm.length > 1 ? 'Essaie un autre titre' : 'Tape le titre pour voir dans quels cinémas il est projeté'}
+                    {rechercheFilm.length > 1 ? 'Essaie un autre titre' : 'Tape le titre pour voir où il est projeté'}
                   </Text>
                 </View>
               }
@@ -457,38 +641,51 @@ export default function ExplorerScreen({ navigation }) {
             <FlatList
               data={lieuxFiltres}
               keyExtractor={item => `lieu_${item.id}`}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.lieuCard, { borderLeftColor: configActive?.couleur || '#888' }]}
-                  onPress={() => allerDetailLieu(item)} activeOpacity={0.7}>
-                  <View style={[styles.lieuIcone, { backgroundColor: configActive?.bg || '#F5F5F5' }]}>
-                    <Ionicons name={configActive?.icon || 'location'} size={20} color={configActive?.couleur || '#888'} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500', marginBottom: 2 }} numberOfLines={1}>{item.nom}</Text>
-                    {item.adresse && <Text style={{ color: '#888', fontSize: t(12) }} numberOfLines={1}>{item.adresse}</Text>}
-                    {positionUser && item.latitude && (
-                      <Text style={{ color: configActive?.couleur || '#888', fontSize: t(11), marginTop: 2 }}>
-                        {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10} km
+              renderItem={({ item }) => {
+                const config = configActive || CATEGORIES_LIEUX[0];
+                const dist = positionUser && item.latitude
+                  ? Math.round(distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude)) * 10) / 10
+                  : null;
+                return (
+                  <TouchableOpacity
+                    style={[styles.lieuCard, { borderLeftColor: config.couleur }]}
+                    onPress={() => allerDetailLieu(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.lieuIcone, { backgroundColor: config.bg }]}>
+                      <Ionicons name={config.icon} size={20} color={config.couleur} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500', marginBottom: 2 }} numberOfLines={1}>
+                        {item.nom}
                       </Text>
-                    )}
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={configActive?.couleur || '#888'} />
-                </TouchableOpacity>
-              )}
-              ListHeaderComponent={lieuxFiltres.length > 0 ? (
-                <View style={[styles.sectionTitre, { paddingHorizontal: 0 }]}>
-                  <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '600' }}>
-                    {configActive?.label} · {lieuxFiltres.length}
+                      {item.adresse && (
+                        <Text style={{ color: '#888', fontSize: t(12) }} numberOfLines={1}>{item.adresse}</Text>
+                      )}
+                      {dist !== null && (
+                        <Text style={{ color: config.couleur, fontSize: t(11), marginTop: 2 }}>{dist} km</Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={config.couleur} />
+                  </TouchableOpacity>
+                );
+              }}
+              ListHeaderComponent={
+                lieuxFiltres.length > 0 ? (
+                  <Text style={{ color: theme.text3, fontSize: t(12), padding: 16, paddingBottom: 8 }}>
+                    {lieuxFiltres.length} lieu{lieuxFiltres.length > 1 ? 'x' : ''} trouvé{lieuxFiltres.length > 1 ? 's' : ''}
+                    {positionUser ? ' · trié par distance' : ''}
                   </Text>
-                </View>
-              ) : null}
+                ) : null
+              }
               ListEmptyComponent={
                 <View style={styles.vide}>
                   <Text style={{ color: theme.text3, fontSize: t(14) }}>Aucun lieu trouvé</Text>
                 </View>
               }
-              contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: 20 }}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              removeClippedSubviews
+              maxToRenderPerBatch={15}
             />
           ) : (
             <View style={styles.vide}>
@@ -511,7 +708,8 @@ export default function ExplorerScreen({ navigation }) {
               style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
               placeholder="Rechercher un événement..."
               placeholderTextColor={theme.text3}
-              value={recherche} onChangeText={setRecherche}
+              value={recherche}
+              onChangeText={setRecherche}
             />
             {recherche.length > 0 && (
               <TouchableOpacity onPress={() => setRecherche('')}>
@@ -519,7 +717,9 @@ export default function ExplorerScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 48 }} contentContainerStyle={styles.filtresScroll}>
+
+          {/* Filtres date */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 46 }} contentContainerStyle={styles.filtresScroll}>
             {[
               { key: 'tous', label: 'Toutes dates' },
               { key: 'ce_soir', label: 'Ce soir' },
@@ -529,7 +729,8 @@ export default function ExplorerScreen({ navigation }) {
             ].map(f => (
               <TouchableOpacity key={f.key}
                 style={[styles.filtrePill, filtreDate === f.key && styles.filtrePillActif]}
-                onPress={() => { setFiltreDate(f.key); if (f.key === 'date_precise') setShowDatePicker(true); }}>
+                onPress={() => { setFiltreDate(f.key); if (f.key === 'date_precise') setShowDatePicker(true); }}
+              >
                 <Text style={[styles.filtrePillTexte, { fontSize: t(12), color: filtreDate === f.key ? '#fff' : theme.text3 }]}>
                   {f.label}
                 </Text>
@@ -537,34 +738,56 @@ export default function ExplorerScreen({ navigation }) {
             ))}
             <TouchableOpacity
               style={[styles.filtrePill, filtreGratuit && { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}
-              onPress={() => setFiltreGratuit(v => !v)}>
+              onPress={() => setFiltreGratuit(v => !v)}
+            >
               <Text style={[styles.filtrePillTexte, { fontSize: t(12), color: filtreGratuit ? '#15803D' : theme.text3 }]}>Gratuit</Text>
             </TouchableOpacity>
           </ScrollView>
+
           {showDatePicker && (
             <DateTimePicker value={datePrecise} mode="date" minimumDate={new Date()}
               onChange={(e, d) => { setShowDatePicker(false); if (d) { setDatePrecise(d); setFiltreDate('date_precise'); } }} />
           )}
+
           <FlatList
             data={agendaFiltres}
             keyExtractor={item => `agenda_${item.id}`}
+            refreshControl={<RefreshControl refreshing={refresh} onRefresh={onRefresh} />}
             renderItem={({ item }) => (
               <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-                <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} />
+                <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} positionUser={positionUser} />
               </View>
             )}
+            onEndReached={chargerPlus}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={
+              chargementPlus ? (
+                <View style={{ padding: 16, alignItems: 'center' }}>
+                  <Text style={{ color: theme.text3, fontSize: t(12) }}>Chargement...</Text>
+                </View>
+              ) : offsetRef.current >= totalOff && totalOff > 0 ? (
+                <View style={{ padding: 16, alignItems: 'center' }}>
+                  <Text style={{ color: theme.text3, fontSize: t(12) }}>{totalOff} événements chargés</Text>
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.vide}>
                 <Ionicons name="calendar-outline" size={40} color={theme.text3} />
                 <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>Aucun événement</Text>
-                <TouchableOpacity style={[styles.effacerBtn, { marginTop: 12 }]}
-                  onPress={() => { setFiltreDate('tous'); setFiltreGratuit(false); setRecherche(''); }}>
+                <TouchableOpacity
+                  style={[styles.effacerBtn, { marginTop: 12 }]}
+                  onPress={() => { setFiltreDate('tous'); setFiltreGratuit(false); setFiltreCategorie(null); setRecherche(''); }}
+                >
                   <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Effacer les filtres</Text>
                 </TouchableOpacity>
               </View>
             }
             contentContainerStyle={{ paddingTop: 8, paddingBottom: 20 }}
-            removeClippedSubviews maxToRenderPerBatch={15} windowSize={10}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={8}
+            initialNumToRender={12}
           />
         </>
       )}
@@ -578,7 +801,8 @@ export default function ExplorerScreen({ navigation }) {
               style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
               placeholder="Rechercher un événement..."
               placeholderTextColor={theme.text3}
-              value={recherche} onChangeText={setRecherche}
+              value={recherche}
+              onChangeText={setRecherche}
             />
             {recherche.length > 0 && (
               <TouchableOpacity onPress={() => setRecherche('')}>
@@ -586,36 +810,47 @@ export default function ExplorerScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
+
           <FlatList
             data={communautairesFiltres}
             keyExtractor={item => `comm_${item.id}`}
             renderItem={({ item }) => (
               <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-                <CarteEvenementCommunautaire item={item} t={t} positionUser={positionUser}
+                <CarteEvenementCommunautaire
+                  item={item} t={t} positionUser={positionUser}
                   onPress={allerDetail} onVoirCarte={voirSurCarte}
-                  CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES} />
+                  CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES}
+                />
               </View>
             )}
             ListEmptyComponent={
               <View style={styles.vide}>
                 <Ionicons name="people-outline" size={40} color={theme.text3} />
-                <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>Aucun événement communautaire</Text>
-                <TouchableOpacity style={[styles.effacerBtn, { marginTop: 12 }]} onPress={() => navigation.navigate('AjoutEvenement')}>
+                <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginTop: 12 }}>
+                  Aucun événement communautaire
+                </Text>
+                <TouchableOpacity
+                  style={[styles.effacerBtn, { marginTop: 12 }]}
+                  onPress={() => navigation.navigate('AjoutEvenement')}
+                >
                   <Ionicons name="add" size={16} color="#fff" />
                   <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Créer un événement</Text>
                 </TouchableOpacity>
               </View>
             }
             contentContainerStyle={{ paddingTop: 8, paddingBottom: 20 }}
-            removeClippedSubviews maxToRenderPerBatch={10}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
           />
         </>
       )}
 
-      {storyViewerVisible && storiesSelectionnees.length > 0 && (
+      {/* Story Viewer */}
+      {storyViewerVisible && stories.length > 0 && (
         <Modal visible animationType="fade" statusBarTranslucent>
           <StoryViewer
-            stories={storiesSelectionnees}
+            stories={stories}
+            indexDepart={storiesIndex}
             onFermer={() => setStoryViewerVisible(false)}
             onVoirCarte={() => { setStoryViewerVisible(false); navigation.navigate('Carte'); }}
             navigation={navigation}
@@ -641,11 +876,11 @@ const styles = StyleSheet.create({
   switchModeBtn: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 },
   sectionTitre: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   creerStoryBanner: { flexDirection: 'row', alignItems: 'center', gap: 14, margin: 16, backgroundColor: '#F9FAFB', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E5E7EB' },
-  creerStoryBannerIcone: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
+  creerStoryBannerIcone: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
   catsContainer: { borderBottomWidth: 0.5, paddingVertical: 8 },
   catsScroll: { gap: 8, paddingHorizontal: 16 },
   catPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
-  lieuCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden' },
+  lieuCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 8, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3 },
   lieuIcone: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   evCard: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 0.5, borderColor: '#E8E8E8', borderLeftWidth: 3, overflow: 'hidden' },
   evCardHaut: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
