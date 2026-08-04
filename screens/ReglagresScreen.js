@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Modal, FlatList, Alert, Image,
+  TouchableOpacity, Modal, FlatList, Alert, Image, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
@@ -8,24 +8,24 @@ import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 
 const TAILLES = [
-  { key: 'petite',      label: 'Petite' },
-  { key: 'normale',     label: 'Normale' },
-  { key: 'grande',      label: 'Grande' },
-  { key: 'tres_grande', label: 'Très grande' },
+  { key: 'petite',      label: 'Petite',       desc: 'Police plus petite pour voir plus de contenu' },
+  { key: 'normale',     label: 'Normale',      desc: 'Taille par défaut' },
+  { key: 'grande',      label: 'Grande',       desc: 'Plus lisible' },
+  { key: 'tres_grande', label: 'Très grande',  desc: 'Accessibilité maximale' },
 ];
 
 const RAYONS_OPTIONS = [
-  { key: null,  label: 'Tout afficher' },
-  { key: 1000,  label: '1 km' },
-  { key: 5000,  label: '5 km' },
-  { key: 10000, label: '10 km' },
-  { key: 20000, label: '20 km' },
+  { key: null,  label: 'Tout afficher',  desc: 'Toute l\'Île-de-France' },
+  { key: 1000,  label: '1 km',           desc: 'Ton quartier immédiat' },
+  { key: 5000,  label: '5 km',           desc: 'Ton arrondissement et alentours' },
+  { key: 10000, label: '10 km',          desc: 'Grande partie de Paris' },
+  { key: 20000, label: '20 km',          desc: 'Paris et proche banlieue' },
 ];
 
 const VISIBILITES = [
-  { key: 'public', label: 'Public',  desc: 'Tout le monde peut voir tes événements' },
-  { key: 'amis',   label: 'Amis',    desc: 'Uniquement tes contacts' },
-  { key: 'prive',  label: 'Privé',   desc: 'Personne ne peut voir ton profil' },
+  { key: 'public', label: 'Public',  desc: 'Tout le monde voit tes événements et ton profil' },
+  { key: 'amis',   label: 'Amis',    desc: 'Uniquement tes abonnés voient ton activité' },
+  { key: 'prive',  label: 'Privé',   desc: 'Seul toi vois tes événements' },
 ];
 
 const Toggle = ({ value, onToggle, couleur = '#111' }) => (
@@ -66,7 +66,7 @@ export default function ReglagresScreen({ navigation }) {
   const supprimerCompte = () => {
     Alert.alert(
       'Supprimer le compte',
-      'Cette action est irréversible. Toutes tes données seront définitivement supprimées : profil, événements, participations, messages.',
+      'Cette action est irréversible. Toutes tes données seront définitivement supprimées.',
       [
         { text: 'Annuler' },
         {
@@ -76,17 +76,14 @@ export default function ReglagresScreen({ navigation }) {
             try {
               const { data: { user } } = await supabase.auth.getUser();
               if (!user) return;
-
+              // Supprime dans l'ordre pour respecter les FK
+              await supabase.from('messages_luma').delete().eq('auteur_id', user.id);
+              await supabase.from('conversation_membres').delete().eq('user_id', user.id);
+              await supabase.from('stories').update({ actif: false }).eq('user_id', user.id);
               await supabase.from('participations').delete().eq('user_id', user.id);
-              await supabase.from('demandes_participation').delete().eq('user_id', user.id);
               await supabase.from('favoris').delete().eq('user_id', user.id);
-              await supabase.from('commentaires').delete().eq('auteur_id', user.id);
-              await supabase.from('reviews').delete().eq('auteur_id', user.id);
-              await supabase.from('follows').delete().eq('follower_id', user.id);
-              await supabase.from('follows').delete().eq('following_id', user.id);
               await supabase.from('notifications').delete().eq('user_id', user.id);
               await supabase.from('preferences_notifications').delete().eq('user_id', user.id);
-              await supabase.from('conversation_membres').delete().eq('user_id', user.id);
               await supabase.from('evenements').delete().eq('auteur_id', user.id);
               await supabase.storage.from('avatars').remove([`${user.id}/avatar.jpg`]);
               await supabase.from('profiles').delete().eq('id', user.id);
@@ -100,6 +97,35 @@ export default function ReglagresScreen({ navigation }) {
     );
   };
 
+  const exporterDonnees = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      Alert.alert(
+        'Export RGPD',
+        'Nous allons préparer tes données. Un email te sera envoyé sous 48h à l\'adresse associée à ton compte.',
+        [
+          { text: 'Annuler' },
+          {
+            text: 'Confirmer',
+            onPress: async () => {
+              // Insère une demande d'export en base
+              await supabase.from('demandes_rgpd').insert({
+                user_id: user.id,
+                email: user.email,
+                statut: 'en_attente',
+              });
+              Alert.alert('Demande envoyée', 'Tu recevras tes données sous 48h.');
+            }
+          }
+        ]
+      );
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\'envoyer la demande.');
+    }
+  };
+
   const Section = ({ titre, children }) => (
     <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
       {titre && <Text style={[styles.sectionTitre, { color: theme.text3, fontSize: t(11) }]}>{titre}</Text>}
@@ -107,11 +133,11 @@ export default function ReglagresScreen({ navigation }) {
     </View>
   );
 
-  const Ligne = ({ iconeName, bg, couleurIcone, label, sub, right, onPress, rouge }) => (
+  const Ligne = ({ iconeName, bg, couleurIcone, label, sub, right, onPress, rouge, disabled }) => (
     <TouchableOpacity
-      style={[styles.ligne, { borderTopColor: theme.border }]}
-      onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
+      style={[styles.ligne, { borderTopColor: theme.border, opacity: disabled ? 0.4 : 1 }]}
+      onPress={disabled ? null : onPress}
+      activeOpacity={onPress && !disabled ? 0.7 : 1}
     >
       <View style={[styles.icone, { backgroundColor: bg }]}>
         <Ionicons name={iconeName} size={15} color={rouge ? '#EF4444' : (couleurIcone || '#111')} />
@@ -124,7 +150,7 @@ export default function ReglagresScreen({ navigation }) {
       </View>
       {right !== undefined
         ? right
-        : onPress
+        : onPress && !disabled
           ? <Ionicons name="chevron-forward" size={14} color={rouge ? '#EF4444' : theme.text3} />
           : null
       }
@@ -153,11 +179,11 @@ export default function ReglagresScreen({ navigation }) {
                 onPress={() => { onSelect(item.key); onClose(); }}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={[{
+                  <Text style={{
                     color: valeurActuelle === item.key ? '#1E40AF' : theme.text,
                     fontSize: t(14),
                     fontWeight: valeurActuelle === item.key ? '500' : '400',
-                  }]}>
+                  }}>
                     {item.label}
                   </Text>
                   {item.desc && (
@@ -181,9 +207,9 @@ export default function ReglagresScreen({ navigation }) {
         <Text style={[styles.titre, { color: theme.text, fontSize: t(22) }]}>Réglages</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Carte Mon compte */}
+        {/* ── Carte Mon compte ── */}
         <TouchableOpacity
           style={styles.compteCard}
           onPress={() => navigation.navigate('Compte')}
@@ -213,9 +239,7 @@ export default function ReglagresScreen({ navigation }) {
                       backgroundColor: scoreConfiance >= 70 ? '#22C55E' : scoreConfiance >= 40 ? '#F59E0B' : '#EF4444',
                     }]} />
                   </View>
-                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: t(11) }}>
-                    {scoreConfiance}%
-                  </Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: t(11) }}>{scoreConfiance}%</Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
@@ -250,6 +274,7 @@ export default function ReglagresScreen({ navigation }) {
           </View>
         </TouchableOpacity>
 
+        {/* ── Carte & Préférences ── */}
         <Section titre="CARTE & PRÉFÉRENCES">
           <Ligne
             iconeName="location-outline" bg="#DBEAFE" couleurIcone="#2563EB"
@@ -264,20 +289,30 @@ export default function ReglagresScreen({ navigation }) {
           />
         </Section>
 
+        {/* ── Notifications ── */}
         <Section titre="NOTIFICATIONS">
           <Ligne
             iconeName="notifications-outline" bg="#DCFCE7" couleurIcone="#22C55E"
             label="Événements à proximité"
+            sub={notifications.proximite ? 'Activé' : 'Désactivé'}
             right={<Toggle value={notifications.proximite} couleur="#22C55E" onToggle={() => setNotifications(n => ({ ...n, proximite: !n.proximite }))} />}
           />
           <Ligne
             iconeName="chatbubble-outline" bg="#FCE7F3" couleurIcone="#EC4899"
             label="Commentaires & réactions"
+            sub={notifications.commentaires ? 'Activé' : 'Désactivé'}
             right={<Toggle value={notifications.commentaires} couleur="#EC4899" onToggle={() => setNotifications(n => ({ ...n, commentaires: !n.commentaires }))} />}
+          />
+          <Ligne
+            iconeName="mail-outline" bg="#DBEAFE" couleurIcone="#2563EB"
+            label="Nouveaux messages"
+            sub={notifications.messages ? 'Activé' : 'Désactivé'}
+            right={<Toggle value={notifications.messages} couleur="#2563EB" onToggle={() => setNotifications(n => ({ ...n, messages: !n.messages }))} />}
           />
           <Ligne
             iconeName="star-outline" bg="#FEF3C7" couleurIcone="#F59E0B"
             label="Places libérées"
+            sub={notifications.places ? 'Activé' : 'Désactivé'}
             right={<Toggle value={notifications.places} couleur="#F59E0B" onToggle={() => setNotifications(n => ({ ...n, places: !n.places }))} />}
           />
           <Ligne
@@ -287,6 +322,7 @@ export default function ReglagresScreen({ navigation }) {
           />
         </Section>
 
+        {/* ── Accessibilité ── */}
         <Section titre="ACCESSIBILITÉ">
           <Ligne
             iconeName="text-outline" bg="#F3E8FF" couleurIcone="#A855F7"
@@ -297,16 +333,18 @@ export default function ReglagresScreen({ navigation }) {
           <Ligne
             iconeName="eye-outline" bg="#F5F5F5" couleurIcone="#555"
             label="Mode daltonien"
-            sub={daltonien ? 'Actif' : 'Inactif'}
+            sub={daltonien ? 'Actif — couleurs adaptées deutéranopie' : 'Inactif'}
             right={<Toggle value={daltonien} couleur="#A855F7" onToggle={() => setDaltonien(!daltonien)} />}
           />
           <Ligne
             iconeName="flash-outline" bg="#FEF3C7" couleurIcone="#F59E0B"
             label="Réduire les animations"
+            sub={animationsReduites ? 'Actif — transitions instantanées' : 'Inactif'}
             right={<Toggle value={animationsReduites} couleur="#F59E0B" onToggle={() => setAnimationsReduites(!animationsReduites)} />}
           />
         </Section>
 
+        {/* ── Confidentialité ── */}
         <Section titre="CONFIDENTIALITÉ">
           <Ligne
             iconeName="shield-outline" bg="#DBEAFE" couleurIcone="#2563EB"
@@ -317,21 +355,28 @@ export default function ReglagresScreen({ navigation }) {
           <Ligne
             iconeName="ban-outline" bg="#FEE2E2" couleurIcone="#EF4444"
             label="Utilisateurs bloqués"
-            sub={`${utilisateursBlockes.length} bloqué${utilisateursBlockes.length !== 1 ? 's' : ''}`}
+            sub={utilisateursBlockes.length === 0
+              ? 'Aucun utilisateur bloqué'
+              : `${utilisateursBlockes.length} utilisateur${utilisateursBlockes.length > 1 ? 's' : ''} bloqué${utilisateursBlockes.length > 1 ? 's' : ''}`}
             onPress={() => setModalBloques(true)}
           />
           <Ligne
             iconeName="download-outline" bg="#F5F5F5" couleurIcone="#555"
             label="Export de mes données (RGPD)"
-            onPress={() => Alert.alert('Export RGPD', 'Tu recevras tes données sous 48h.')}
+            sub="Reçois toutes tes données sous 48h"
+            onPress={exporterDonnees}
           />
         </Section>
 
+        {/* ── Communauté ── */}
         <Section titre="COMMUNAUTÉ">
           <Ligne
             iconeName="chatbubbles-outline" bg="#DCFCE7" couleurIcone="#22C55E"
             label="Règles de la communauté"
-            onPress={() => Alert.alert('Règles Luma', '1. Lieux publics uniquement\n2. Respect de tous\n3. Pas d\'adresse personnelle\n4. Signaler tout contenu inapproprié')}
+            onPress={() => Alert.alert(
+              'Règles Luma',
+              '1. Lieux publics uniquement\n2. Respect de chacun\n3. Pas d\'adresse personnelle\n4. Signaler tout contenu inapproprié\n5. Pas de spam ni de publicité'
+            )}
           />
           <Ligne
             iconeName="document-text-outline" bg="#DBEAFE" couleurIcone="#2563EB"
@@ -342,17 +387,31 @@ export default function ReglagresScreen({ navigation }) {
             iconeName="help-circle-outline" bg="#FEF3C7" couleurIcone="#F59E0B"
             label="Aide & FAQ"
             onPress={() => Alert.alert(
-              'Aide',
-              'Tu rencontres un problème ou tu as une suggestion ?\n\nUtilise le bouton "Proposer une amélioration" ci-dessous pour nous contacter.'
+              'Aide Luma',
+              '🗺️ Carte : appuie sur un marqueur pour voir les détails\n\n📸 Story : crée une story depuis l\'appareil photo\n\n💬 Messages : démarre une conversation depuis Messagerie → Nouveau\n\n❓ Autre problème ? Utilise "Proposer une amélioration"'
             )}
           />
           <Ligne
             iconeName="star-half-outline" bg="#F3E8FF" couleurIcone="#A855F7"
             label="Proposer une amélioration"
-            onPress={() => Alert.alert('Merci !', 'Ton retour nous aide à améliorer Luma.')}
+            sub="Ton retour aide à améliorer Luma"
+            onPress={() => {
+              Alert.alert(
+                'Merci !',
+                'Comment veux-tu nous contacter ?',
+                [
+                  { text: 'Annuler' },
+                  {
+                    text: 'Email',
+                    onPress: () => Linking.openURL('mailto:feedback@luma.app?subject=Amélioration Luma')
+                  },
+                ]
+              );
+            }}
           />
         </Section>
 
+        {/* ── Compte avancé ── */}
         <Section titre="COMPTE AVANCÉ">
           <Ligne
             iconeName="log-out-outline" bg="#FEE2E2" couleurIcone="#EF4444"
@@ -360,12 +419,16 @@ export default function ReglagresScreen({ navigation }) {
             onPress={() => Alert.alert(
               'Se déconnecter',
               'Tu seras redirigé vers la page de connexion.',
-              [{ text: 'Annuler' }, { text: 'Se déconnecter', style: 'destructive', onPress: deconnexion }]
+              [
+                { text: 'Annuler' },
+                { text: 'Se déconnecter', style: 'destructive', onPress: deconnexion }
+              ]
             )}
           />
           <Ligne
             iconeName="trash-outline" bg="#FEE2E2"
             label="Supprimer le compte" rouge
+            sub="Action irréversible"
             onPress={supprimerCompte}
           />
         </Section>
@@ -373,9 +436,9 @@ export default function ReglagresScreen({ navigation }) {
         <Text style={[styles.version, { color: theme.text3, fontSize: t(12) }]}>
           luma v1.0 · rejoins ton quartier
         </Text>
-
       </ScrollView>
 
+      {/* Modals */}
       <ModalChoix visible={modalTaille} onClose={() => setModalTaille(false)} titre="Taille du texte" options={TAILLES} valeurActuelle={tailleTexte} onSelect={setTailleTexte} />
       <ModalChoix visible={modalRayon} onClose={() => setModalRayon(false)} titre="Rayon par défaut" options={RAYONS_OPTIONS} valeurActuelle={rayonDefaut} onSelect={setRayonDefaut} />
       <ModalChoix visible={modalVisibilite} onClose={() => setModalVisibilite(false)} titre="Visibilité du profil" options={VISIBILITES} valeurActuelle={visibiliteDefaut} onSelect={setVisibiliteDefaut} />
@@ -401,11 +464,18 @@ export default function ReglagresScreen({ navigation }) {
                 renderItem={({ item }) => (
                   <View style={[styles.modalOption, { borderBottomColor: theme.border }]}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(14) }}>{item.nom}</Text>
-                      <Text style={{ color: theme.text3, fontSize: t(12), marginTop: 2 }}>{item.handle}</Text>
+                      <Text style={{ color: theme.text, fontSize: t(14) }}>
+                        {item.prenom || item.nom || 'Utilisateur'}
+                      </Text>
+                      {item.handle && (
+                        <Text style={{ color: theme.text3, fontSize: t(12), marginTop: 2 }}>{item.handle}</Text>
+                      )}
                     </View>
-                    <TouchableOpacity onPress={() => bloquerUtilisateur(item)} style={{ padding: 8 }}>
-                      <Text style={{ color: '#2563EB', fontSize: t(13) }}>Débloquer</Text>
+                    <TouchableOpacity
+                      onPress={() => bloquerUtilisateur(item)}
+                      style={[styles.debloquerBtn, { backgroundColor: '#FEE2E2' }]}
+                    >
+                      <Text style={{ color: '#EF4444', fontSize: t(12), fontWeight: '500' }}>Débloquer</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -442,8 +512,9 @@ const styles = StyleSheet.create({
   toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff', position: 'absolute', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 2, elevation: 2 },
   version: { textAlign: 'center', padding: 20 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '60%' },
+  modalSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 0.5 },
   modalTitre: { fontWeight: '500' },
-  modalOption: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 0.5 },
+  modalOption: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 0.5, gap: 10 },
+  debloquerBtn: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
 });

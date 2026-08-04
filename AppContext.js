@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { supabase } from './supabase';
 
 const AppContext = createContext();
@@ -24,8 +25,7 @@ export function mappingCategorie(tags, titre, description, lieu) {
     ...(Array.isArray(tags) ? tags : [String(tags || '')]),
     titre || '', description || '', lieu || '',
   ].join(' ').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-  if (tout.match(/\b(esport|gaming|jeux.video|game.controller|nintendo|playstation|xbox|twitch)\b/)) return 'Gaming';
+  if (tout.match(/\b(esport|gaming|jeux.video|nintendo|playstation|xbox|twitch)\b/)) return 'Gaming';
   if (tout.match(/\b(cinema|ugc|mk2|pathe|gaumont|louxor|film|projection|seance|cine)\b/)) return 'Cinéma';
   if (tout.match(/\b(theatre|comedie.francaise|odeon|piece.de.theatre|mise.en.scene|danse|ballet|opera|cirque|humour|stand.up)\b/)) return 'Théâtre';
   if (tout.match(/\b(concert|festival|jazz|blues|rock|metal|pop|electro|rap|rnb|hip.hop|classique|orchestre|symphonie|chanson|musique)\b/)) return 'Musique';
@@ -48,22 +48,21 @@ export function formatDateParis(dateStr) {
     const minutesUTC = d.getUTCMinutes();
     const pasDheure = heureUTC === 0 && minutesUTC === 0;
     if (pasDheure) {
-      return d.toLocaleDateString('fr-FR', {
-        weekday: 'short', day: 'numeric', month: 'short',
-        timeZone: 'Europe/Paris',
-      });
+      return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
     }
     return d.toLocaleDateString('fr-FR', {
       weekday: 'short', day: 'numeric', month: 'short',
-      hour: '2-digit', minute: '2-digit',
-      timeZone: 'Europe/Paris',
+      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris',
     });
   } catch { return null; }
 }
 
-const REGLAGES_KEY = 'luma_reglages_v1';
+const REGLAGES_KEY = 'luma_reglages_v2';
+const CACHE_EVENEMENTS_KEY = 'luma_cache_evenements_v1';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export function AppProvider({ children }) {
+  // ── Réglages ──────────────────────────────────────────────────────────────
   const [modeSombre, setModeSombreState] = useState(false);
   const [tailleTexte, setTailleTexteState] = useState('normale');
   const [daltonien, setDaltonienState] = useState(false);
@@ -71,14 +70,17 @@ export function AppProvider({ children }) {
   const [animationsReduites, setAnimationsReduitesState] = useState(false);
   const [visibiliteDefaut, setVisibiliteDefautState] = useState('public');
   const [utilisateursBlockes, setUtilisateursBlockes] = useState([]);
-  const [favoris, setFavoris] = useState([]);
-  const [profil, setProfil] = useState(null);
   const [notifications, setNotificationsState] = useState({
-    proximite: true, commentaires: true, places: false,
+    proximite: true, commentaires: true, places: false, messages: true,
   });
   const [reglagesCharges, setReglagesCharges] = useState(false);
+
+  // ── Profil & données ──────────────────────────────────────────────────────
+  const [profil, setProfil] = useState(null);
+  const [favoris, setFavoris] = useState([]);
   const [evenementCible, setEvenementCible] = useState(null);
 
+  // ── Chargement réglages ───────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
@@ -92,6 +94,7 @@ export function AppProvider({ children }) {
           if (r.animationsReduites !== undefined) setAnimationsReduitesState(r.animationsReduites);
           if (r.visibiliteDefaut) setVisibiliteDefautState(r.visibiliteDefaut);
           if (r.notifications) setNotificationsState(r.notifications);
+          if (r.utilisateursBlockes) setUtilisateursBlockes(r.utilisateursBlockes);
         }
       } catch {}
       setReglagesCharges(true);
@@ -102,18 +105,50 @@ export function AppProvider({ children }) {
     try {
       const actuels = {
         modeSombre, tailleTexte, daltonien, rayonDefaut,
-        animationsReduites, visibiliteDefaut, notifications,
+        animationsReduites, visibiliteDefaut, notifications, utilisateursBlockes,
       };
       await AsyncStorage.setItem(REGLAGES_KEY, JSON.stringify({ ...actuels, ...nouveauxReglages }));
     } catch {}
-  }, [modeSombre, tailleTexte, daltonien, rayonDefaut, animationsReduites, visibiliteDefaut, notifications]);
+  }, [modeSombre, tailleTexte, daltonien, rayonDefaut, animationsReduites, visibiliteDefaut, notifications, utilisateursBlockes]);
 
-  const setModeSombre = useCallback((v) => { setModeSombreState(v); sauvegarderReglages({ modeSombre: v }); }, [sauvegarderReglages]);
-  const setTailleTexte = useCallback((v) => { setTailleTexteState(v); sauvegarderReglages({ tailleTexte: v }); }, [sauvegarderReglages]);
-  const setDaltonien = useCallback((v) => { setDaltonienState(v); sauvegarderReglages({ daltonien: v }); }, [sauvegarderReglages]);
-  const setRayonDefaut = useCallback((v) => { setRayonDefautState(v); sauvegarderReglages({ rayonDefaut: v }); }, [sauvegarderReglages]);
-  const setAnimationsReduites = useCallback((v) => { setAnimationsReduitesState(v); sauvegarderReglages({ animationsReduites: v }); }, [sauvegarderReglages]);
-  const setVisibiliteDefaut = useCallback((v) => { setVisibiliteDefautState(v); sauvegarderReglages({ visibiliteDefaut: v }); }, [sauvegarderReglages]);
+  // ── Setters avec sauvegarde ───────────────────────────────────────────────
+  const setModeSombre = useCallback((v) => {
+    setModeSombreState(v);
+    sauvegarderReglages({ modeSombre: v });
+  }, [sauvegarderReglages]);
+
+  const setTailleTexte = useCallback((v) => {
+    setTailleTexteState(v);
+    sauvegarderReglages({ tailleTexte: v });
+  }, [sauvegarderReglages]);
+
+  const setDaltonien = useCallback((v) => {
+    setDaltonienState(v);
+    sauvegarderReglages({ daltonien: v });
+  }, [sauvegarderReglages]);
+
+  const setRayonDefaut = useCallback((v) => {
+    setRayonDefautState(v);
+    sauvegarderReglages({ rayonDefaut: v });
+  }, [sauvegarderReglages]);
+
+  const setAnimationsReduites = useCallback((v) => {
+    setAnimationsReduitesState(v);
+    sauvegarderReglages({ animationsReduites: v });
+  }, [sauvegarderReglages]);
+
+  const setVisibiliteDefaut = useCallback((v) => {
+    setVisibiliteDefautState(v);
+    sauvegarderReglages({ visibiliteDefaut: v });
+    // ✅ Applique la visibilité en base
+    if (profil?.id) {
+      supabase.from('profiles')
+        .update({ visibilite: v })
+        .eq('id', profil.id)
+        .then(() => {});
+    }
+  }, [sauvegarderReglages, profil]);
+
   const setNotifications = useCallback((fn) => {
     setNotificationsState(prev => {
       const next = typeof fn === 'function' ? fn(prev) : fn;
@@ -122,25 +157,87 @@ export function AppProvider({ children }) {
     });
   }, [sauvegarderReglages]);
 
+  // ✅ Bloquer un utilisateur — persisté en AsyncStorage ET en base
+  const bloquerUtilisateur = useCallback(async (utilisateur) => {
+    setUtilisateursBlockes(prev => {
+      const existe = prev.find(u => u.id === utilisateur.id);
+      const nouveauxBloques = existe
+        ? prev.filter(u => u.id !== utilisateur.id)
+        : [...prev, utilisateur];
+      sauvegarderReglages({ utilisateursBlockes: nouveauxBloques });
+      return nouveauxBloques;
+    });
+    // Sauvegarde en base si connecté
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const existe = utilisateursBlockes.find(u => u.id === utilisateur.id);
+      if (existe) {
+        await supabase.from('utilisateurs_bloques')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('bloque_id', utilisateur.id);
+      } else {
+        await supabase.from('utilisateurs_bloques')
+          .insert({ user_id: user.id, bloque_id: utilisateur.id });
+      }
+    } catch {}
+  }, [utilisateursBlockes, sauvegarderReglages]);
+
+  // ── Profil & auth ─────────────────────────────────────────────────────────
   useEffect(() => {
     const chargerProfil = async (userId) => {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      if (data) setProfil(data);
+      try {
+        const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (data) setProfil(data);
+      } catch {}
     };
+
     const chargerFavoris = async (userId) => {
-      const { data } = await supabase.from('favoris').select('*, evenements(*)').eq('user_id', userId);
-      if (data) setFavoris(data.map(f => ({ ...f.evenements, favoriId: f.id })).filter(Boolean));
+      try {
+        const { data } = await supabase.from('favoris')
+          .select('*, evenements(*)')
+          .eq('user_id', userId);
+        if (data) setFavoris(data.map(f => ({ ...f.evenements, favoriId: f.id })).filter(Boolean));
+      } catch {}
     };
+
+    const chargerBloques = async (userId) => {
+      try {
+        const { data } = await supabase.from('utilisateurs_bloques')
+          .select('bloque_id, profiles:bloque_id(id, prenom, handle)')
+          .eq('user_id', userId);
+        if (data && data.length > 0) {
+          const bloques = data.map(b => b.profiles).filter(Boolean);
+          setUtilisateursBlockes(bloques);
+          sauvegarderReglages({ utilisateursBlockes: bloques });
+        }
+      } catch {}
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) { chargerProfil(session.user.id); chargerFavoris(session.user.id); }
-      else { setProfil(null); setFavoris([]); }
+      if (session?.user) {
+        chargerProfil(session.user.id);
+        chargerFavoris(session.user.id);
+        chargerBloques(session.user.id);
+      } else {
+        setProfil(null);
+        setFavoris([]);
+      }
     });
+
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) { chargerProfil(user.id); chargerFavoris(user.id); }
+      if (user) {
+        chargerProfil(user.id);
+        chargerFavoris(user.id);
+        chargerBloques(user.id);
+      }
     });
+
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── Favoris ───────────────────────────────────────────────────────────────
   const ajouterFavori = useCallback(async (evenement) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -156,19 +253,47 @@ export function AppProvider({ children }) {
 
   const estFavori = useCallback((id) => favoris.some(f => f.id === id), [favoris]);
 
-  const bloquerUtilisateur = useCallback((utilisateur) => {
-    setUtilisateursBlockes(prev => {
-      const existe = prev.find(u => u.id === utilisateur.id);
-      return existe ? prev.filter(u => u.id !== utilisateur.id) : [...prev, utilisateur];
-    });
+  // ── Cache événements ──────────────────────────────────────────────────────
+  const sauvegarderCacheEvenements = useCallback(async (data) => {
+    try {
+      await AsyncStorage.setItem(CACHE_EVENEMENTS_KEY, JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }));
+    } catch {}
   }, []);
 
+  const lireCacheEvenements = useCallback(async () => {
+    try {
+      const json = await AsyncStorage.getItem(CACHE_EVENEMENTS_KEY);
+      if (!json) return null;
+      const { data, timestamp } = JSON.parse(json);
+      if (Date.now() - timestamp > CACHE_TTL) return null;
+      return data;
+    } catch { return null; }
+  }, []);
+
+  // ── Déconnexion sécurisée ─────────────────────────────────────────────────
   const deconnexion = useCallback(async () => {
+    try {
+      // Invalide le token push
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && profil?.id) {
+        await supabase.from('profiles')
+          .update({ push_token: null })
+          .eq('id', profil.id);
+      }
+    } catch {}
     await supabase.auth.signOut();
     setFavoris([]);
-    setProfil(null);
-  }, []);
+    setProfil([]);
+    // Vide le cache
+    try {
+      await AsyncStorage.removeItem(CACHE_EVENEMENTS_KEY);
+    } catch {}
+  }, [profil]);
 
+  // ── Theme ─────────────────────────────────────────────────────────────────
   const facteurTexte = useMemo(() =>
     tailleTexte === 'petite' ? 0.85
     : tailleTexte === 'grande' ? 1.2
@@ -176,35 +301,72 @@ export function AppProvider({ children }) {
     : 1,
   [tailleTexte]);
 
-  const theme = useMemo(() => modeSombre ? {
-    bg: '#0A0A0A', bg2: '#111111', bg3: '#1A1A1A',
-    text: '#FFFFFF', text2: '#E5E5E5', text3: '#555555',
-    border: '#222222', card: '#111111', tabBar: '#0A0A0A',
-    actif: '#FFFFFF', inactif: '#444444',
-  } : {
-    bg: '#F5F5F5', bg2: '#FFFFFF', bg3: '#F0F0F0',
-    text: '#111111', text2: '#333333', text3: '#888888',
-    border: '#E8E8E8', card: '#FFFFFF', tabBar: '#FFFFFF',
-    actif: '#111111', inactif: '#BBBBBB',
-  }, [modeSombre]);
+  // ✅ Thème daltonien — remplace les couleurs problématiques rouge/vert
+  const theme = useMemo(() => {
+    const base = modeSombre ? {
+      bg: '#0A0A0A', bg2: '#111111', bg3: '#1A1A1A',
+      text: '#FFFFFF', text2: '#E5E5E5', text3: '#555555',
+      border: '#222222', card: '#111111', tabBar: '#0A0A0A',
+      actif: '#FFFFFF', inactif: '#444444',
+    } : {
+      bg: '#F5F5F5', bg2: '#FFFFFF', bg3: '#F0F0F0',
+      text: '#111111', text2: '#333333', text3: '#888888',
+      border: '#E8E8E8', card: '#FFFFFF', tabBar: '#FFFFFF',
+      actif: '#111111', inactif: '#BBBBBB',
+    };
 
+    // ✅ Mode daltonien — palette deutéranopie (rouge-vert)
+    if (daltonien) {
+      return {
+        ...base,
+        // Remplace le vert par du bleu, le rouge par de l'orange
+        daltonien: true,
+        couleurSucces: '#2563EB',    // bleu au lieu de vert
+        couleurErreur: '#F59E0B',    // orange au lieu de rouge
+        couleurAlerte: '#A855F7',    // violet au lieu de jaune
+      };
+    }
+
+    return { ...base, daltonien: false, couleurSucces: '#22C55E', couleurErreur: '#EF4444', couleurAlerte: '#F59E0B' };
+  }, [modeSombre, daltonien]);
+
+  // ✅ Durée d'animation — réduite si animationsReduites
+  const dureAnimation = useMemo(() =>
+    animationsReduites ? 0 : 300,
+  [animationsReduites]);
+
+  // ── CATEGORIES_COULEURS & CAT_ICONES ──────────────────────────────────────
   const CATEGORIES_COULEURS = useMemo(() => {
     const result = {};
     Object.entries(CATEGORIES).forEach(([nom, c]) => {
-      result[nom] = { forte: c.forte, claire: c.claire, texte: c.texte };
+      // ✅ Applique le mode daltonien aux couleurs de catégories
+      if (daltonien && nom === 'Entraide') {
+        result[nom] = { forte: '#2563EB', claire: '#DBEAFE', texte: '#1E40AF' };
+      } else if (daltonien && nom === 'Marché') {
+        result[nom] = { forte: '#F59E0B', claire: '#FEF3C7', texte: '#92400E' };
+      } else {
+        result[nom] = { forte: c.forte, claire: c.claire, texte: c.texte };
+      }
     });
     return result;
-  }, []);
+  }, [daltonien]);
 
   const CAT_ICONES = useMemo(() => {
     const result = {};
-    Object.entries(CATEGORIES).forEach(([nom, c]) => {
-      result[nom] = c.icone;
-    });
+    Object.entries(CATEGORIES).forEach(([nom, c]) => { result[nom] = c.icone; });
     return result;
   }, []);
 
+  // ── Visibilité — filtre les événements selon la visibilité ────────────────
+  const filtrerParVisibilite = useCallback((evenements, userId) => {
+    if (visibiliteDefaut === 'prive') return evenements.filter(e => e.auteur_id === userId);
+    if (visibiliteDefaut === 'amis') return evenements; // À implémenter avec système de follows
+    return evenements; // public
+  }, [visibiliteDefaut]);
+
+  // ── Value ─────────────────────────────────────────────────────────────────
   const value = useMemo(() => ({
+    // Réglages
     modeSombre, setModeSombre,
     tailleTexte, setTailleTexte,
     daltonien, setDaltonien,
@@ -212,22 +374,36 @@ export function AppProvider({ children }) {
     animationsReduites, setAnimationsReduites,
     visibiliteDefaut, setVisibiliteDefaut,
     utilisateursBlockes, bloquerUtilisateur,
-    favoris, ajouterFavori, estFavori,
     notifications, setNotifications,
-    profil, setProfil, deconnexion,
-    facteurTexte, theme,
-    CATEGORIES_COULEURS, CAT_ICONES,
     reglagesCharges,
+
+    // Profil
+    profil, setProfil,
+    favoris, ajouterFavori, estFavori,
+    deconnexion,
+
+    // Theme & UX
+    facteurTexte, theme, dureAnimation,
+    CATEGORIES_COULEURS, CAT_ICONES,
+
+    // Navigation
     evenementCible, setEvenementCible,
+
+    // Cache
+    sauvegarderCacheEvenements, lireCacheEvenements,
+
+    // Utilitaires
+    filtrerParVisibilite,
   }), [
     modeSombre, tailleTexte, daltonien, rayonDefaut,
     animationsReduites, visibiliteDefaut, utilisateursBlockes,
-    favoris, notifications, profil, facteurTexte, theme,
+    favoris, notifications, profil, facteurTexte, theme, dureAnimation,
     CATEGORIES_COULEURS, CAT_ICONES, reglagesCharges,
     ajouterFavori, estFavori, bloquerUtilisateur, deconnexion,
     setModeSombre, setTailleTexte, setDaltonien, setRayonDefaut,
     setAnimationsReduites, setVisibiliteDefaut, setNotifications,
     evenementCible, setEvenementCible,
+    sauvegarderCacheEvenements, lireCacheEvenements, filtrerParVisibilite,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -1,219 +1,146 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 
 const EvenementsContext = createContext();
 
-function calculerDateFinReelle(evenement) {
-  if (evenement.type === 'fixe') return null;
-  if (evenement.date_fin) return new Date(evenement.date_fin);
-  if (evenement.duree_minutes && evenement.date_evenement) {
-    const fin = new Date(evenement.date_evenement);
-    fin.setMinutes(fin.getMinutes() + evenement.duree_minutes);
-    return fin;
-  }
-  if (evenement.date_evenement) return new Date(evenement.date_evenement);
-  return null;
-}
-
-function estExpire(evenement) {
-  if (evenement.type === 'fixe') return false;
-  if (evenement.suspendu) return true;
-  const fin = calculerDateFinReelle(evenement);
-  if (!fin) return false;
-  return fin < new Date();
-}
+const CACHE_KEY = 'luma_evenements_v2';
+const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 export function EvenementsProvider({ children }) {
   const [evenements, setEvenements] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [erreurReseau, setErreurReseau] = useState(false);
+  const dernierChargement = useRef(0);
+  const appState = useRef(AppState.currentState);
 
-  const chargerEvenements = useCallback(async (positionUser = null, rayonMetres = null) => {
+  // Charge depuis le cache d'abord
+  const chargerDepuisCache = async () => {
     try {
-      let data, error;
-
-      if (positionUser && rayonMetres) {
-        const result = await supabase.rpc('evenements_dans_rayon', {
-          lat: positionUser.latitude,
-          lng: positionUser.longitude,
-          rayon_metres: rayonMetres,
-        });
-        data = result.data;
-        error = result.error;
-
-        if (error) {
-          const fallback = await supabase
-            .from('evenements')
-            .select(`*, profiles:auteur_id(prenom, handle, avatar_url, score_confiance, telephone_verifie, email_verifie)`)
-            .eq('visibilite', 'public')
-            .eq('suspendu', false)
-            .order('created_at', { ascending: false })
-            .limit(150);
-          data = fallback.data;
-          error = fallback.error;
-        }
-      } else {
-        const result = await supabase
-          .from('evenements')
-          .select(`*, profiles:auteur_id(prenom, handle, avatar_url, score_confiance, telephone_verifie, email_verifie)`)
-          .eq('visibilite', 'public')
-          .eq('suspendu', false)
-          .order('created_at', { ascending: false })
-          .limit(150);
-        data = result.data;
-        error = result.error;
-      }
-
-      if (error) {
-        setErreurReseau(true);
+      const json = await AsyncStorage.getItem(CACHE_KEY);
+      if (!json) return false;
+      const { data, timestamp } = JSON.parse(json);
+      if (Date.now() - timestamp > CACHE_TTL) return false;
+      if (data?.length > 0) {
+        setEvenements(data);
         setChargement(false);
-        return;
+        return true;
       }
+    } catch {}
+    return false;
+  };
 
-      // Nettoie les expirés en base
-      const expires = (data || []).filter(e => estExpire(e));
-      if (expires.length > 0) {
-        supabase
-          .from('evenements')
-          .update({ suspendu: true })
-          .in('id', expires.map(e => e.id))
-          .then(() => {});
+  const sauvegarderCache = async (data) => {
+    try {
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }));
+    } catch {}
+  };
+
+  const chargerEvenements = useCallback(async (forceRefresh = false) => {
+    // Anti-spam — pas de rechargement si < 30s
+    const maintenant = Date.now();
+    if (!forceRefresh && maintenant - dernierChargement.current < 30000) return;
+
+    // Charge le cache en premier pour affichage instantané
+    const cacheValide = await chargerDepuisCache();
+    if (cacheValide && !forceRefresh) {
+      // Cache valide — charge quand même en arrière-plan
+      chargerDepuisReseau(false);
+      return;
+    }
+
+    setChargement(true);
+    await chargerDepuisReseau(true);
+  }, []);
+
+  const chargerDepuisReseau = async (afficherChargement = true) => {
+    try {
+      const maintenant = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('evenements')
+        .select(`
+          id, titre, description, lieu, adresse, latitude, longitude,
+          date_evenement, categorie, participants, max, sans_max,
+          type, auteur_id, suspendu, created_at,
+          profiles:auteur_id(prenom, avatar_url)
+        `)
+        .eq('suspendu', false)
+        .or(`type.eq.fixe,date_evenement.gte.${maintenant}`)
+        .order('date_evenement', { ascending: true, nullsFirst: false })
+        .limit(500);
+
+      if (error) throw error;
+
+      if (data) {
+        setEvenements(data);
+        await sauvegarderCache(data);
+        setErreurReseau(false);
+        dernierChargement.current = Date.now();
       }
-
-      const filtres = (data || []).filter(e => !estExpire(e));
-
-      setErreurReseau(false);
-      setEvenements(filtres.map(e => ({
-        ...e,
-        participants: e.participants_count || 0,
-        max: e.max_participants,
-        sansMax: e.sans_max,
-        validationRequise: e.validation_requise,
-        commentaires: [],
-        dateFinReelle: calculerDateFinReelle(e),
-      })));
     } catch {
       setErreurReseau(true);
+    } finally {
+      if (afficherChargement) setChargement(false);
     }
-    setChargement(false);
-  }, []);
+  };
 
   useEffect(() => {
     chargerEvenements();
 
-    // Vérifie toutes les 30 secondes si des événements ont expiré
-    const expirationCheck = setInterval(() => {
-      setEvenements(prev => {
-        const restants = prev.filter(e => !estExpire(e));
-        const disparus = prev.filter(e => estExpire(e));
-        if (disparus.length > 0) {
-          supabase
-            .from('evenements')
-            .update({ suspendu: true })
-            .in('id', disparus.map(e => e.id))
-            .then(() => {});
-        }
-        return restants.length !== prev.length ? restants : prev;
-      });
-    }, 30000);
+    // Recharge quand l'app revient au premier plan
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (appState.current.match(/inactive|background/) && nextState === 'active') {
+        chargerEvenements();
+      }
+      appState.current = nextState;
+    });
 
-    const retryInterval = setInterval(() => {
-      if (erreurReseau) chargerEvenements();
-    }, 10000);
-
-    const subscription = supabase
-      .channel('evenements_changes')
+    // Temps réel — écoute les nouveaux événements
+    const channel = supabase
+      .channel('evenements_live')
       .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'evenements',
-      }, () => chargerEvenements())
+        event: '*',
+        schema: 'public',
+        table: 'evenements',
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setEvenements(prev => {
+            const existe = prev.find(e => e.id === payload.new.id);
+            if (existe) return prev;
+            return [...prev, payload.new].sort((a, b) => {
+              if (!a.date_evenement) return 1;
+              if (!b.date_evenement) return -1;
+              return new Date(a.date_evenement) - new Date(b.date_evenement);
+            });
+          });
+        } else if (payload.eventType === 'UPDATE') {
+          if (payload.new.suspendu) {
+            setEvenements(prev => prev.filter(e => e.id !== payload.new.id));
+          } else {
+            setEvenements(prev => prev.map(e => e.id === payload.new.id ? { ...e, ...payload.new } : e));
+          }
+        } else if (payload.eventType === 'DELETE') {
+          setEvenements(prev => prev.filter(e => e.id !== payload.old.id));
+        }
+      })
       .subscribe();
 
     return () => {
-      clearInterval(expirationCheck);
-      clearInterval(retryInterval);
-      supabase.removeChannel(subscription);
+      sub.remove();
+      supabase.removeChannel(channel);
     };
-  }, [chargerEvenements, erreurReseau]);
-
-  const ajouterEvenement = useCallback(async (evenement) => {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) return { succes: false, erreur: 'non_connecte' };
-
-    const { data: profilExiste } = await supabase
-      .from('profiles').select('id, is_organisateur').eq('id', user.id).single();
-    if (!profilExiste) return { succes: false, erreur: 'profil_introuvable' };
-
-    // Vérifie la limite anti-spam via la fonction SQL
-    const { data: peutCreer, error: limiteError } = await supabase
-      .rpc('peut_creer_evenement', { user_uuid: user.id });
-
-    if (limiteError || !peutCreer) {
-      return {
-        succes: false,
-        erreur: 'limite_atteinte',
-        message: profilExiste.is_organisateur
-          ? 'Erreur inattendue.'
-          : 'Tu as atteint la limite de 3 événements actifs simultanés. Supprime ou attends la fin d\'un événement existant pour en créer un nouveau.',
-      };
-    }
-
-    const { data, error } = await supabase.from('evenements').insert({
-      titre: evenement.titre,
-      description: evenement.description || '',
-      categorie: evenement.categorie,
-      type: evenement.type,
-      lieu: evenement.lieu,
-      duree: evenement.duree || '',
-      duree_minutes: evenement.dureeMinutes || null,
-      date_evenement: evenement.dateEvenement || null,
-      date_fin: evenement.dateFin || null,
-      latitude: evenement.latitude,
-      longitude: evenement.longitude,
-      max_participants: evenement.max,
-      sans_max: evenement.sansMax || false,
-      visibilite: evenement.visibilite || 'public',
-      validation_requise: evenement.validationRequise || false,
-      auteur_id: user.id,
-      participants_count: 0,
-      suspendu: false,
-    }).select().single();
-
-    if (error) return { succes: false, erreur: 'insertion_echouee' };
-
-    const nouvelEvenement = {
-      ...data,
-      participants: 0,
-      max: data.max_participants,
-      sansMax: data.sans_max,
-      validationRequise: data.validation_requise,
-      commentaires: [],
-      dateFinReelle: calculerDateFinReelle(data),
-    };
-    setEvenements(prev => [nouvelEvenement, ...prev]);
-    return { succes: true, evenement: nouvelEvenement };
-  }, []);
-
-  const supprimerEvenement = useCallback(async (evenementId) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { error } = await supabase
-      .from('evenements')
-      .update({ suspendu: true })
-      .eq('id', evenementId)
-      .eq('auteur_id', user.id);
-
-    if (!error) {
-      setEvenements(prev => prev.filter(e => e.id !== evenementId));
-      return true;
-    }
-    return false;
   }, []);
 
   return (
     <EvenementsContext.Provider value={{
-      evenements, ajouterEvenement, supprimerEvenement,
-      chargement, erreurReseau, chargerEvenements,
+      evenements,
+      chargement,
+      erreurReseau,
+      chargerEvenements: () => chargerEvenements(true),
     }}>
       {children}
     </EvenementsContext.Provider>

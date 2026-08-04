@@ -1,6 +1,40 @@
 import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SUPABASE_URL = 'https://jsvnuvjntlxalbdufgbu.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impzdm51dmpudGx4YWxiZHVmZ2J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NzA1OTUsImV4cCI6MjA5NjE0NjU5NX0.LAHyyvzwOH4GOjJdoiQDM4u7CGtcsc5zXbA5jOMVnTQ';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impzdm51dmludGx4YWxiZHVmZ2J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYwMTI5MjcsImV4cCI6MjA2MTU4ODkyN30.sWpHBDvBq5DI_LNjRFaMkFBRjQwM6oU_KvXrSEa8JeY';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+  global: {
+    fetch: async (url, options = {}) => {
+      // ✅ Retry automatique sur erreur réseau (max 3 fois)
+      let dernierErreur;
+      for (let i = 0; i < 3; i++) {
+        try {
+          const response = await fetch(url, {
+            ...options,
+            headers: {
+              ...options.headers,
+              'x-app-version': '1.0.0',
+            },
+          });
+          return response;
+        } catch (e) {
+          dernierErreur = e;
+          if (i < 2) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        }
+      }
+      throw dernierErreur;
+    },
+  },
+  db: { schema: 'public' },
+  realtime: {
+    params: { eventsPerSecond: 10 },
+  },
+});
