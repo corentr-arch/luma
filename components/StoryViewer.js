@@ -7,6 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { useApp } from '../AppContext';
+import { haptiqueLeger, haptiqueSucces, haptiqueErreur } from '../utils/haptics';
+import BoutonSignaler from './BoutonSignaler';
 
 const { width: W } = Dimensions.get('window');
 const DUREE_IMAGE = 5000;
@@ -27,6 +29,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
 
   const story = stories?.[index];
   const estMonStory = profil?.id && story?.user_id === profil.id;
+  const auteur = story ? (auteurProfils[story.user_id] || null) : null;
 
   useEffect(() => {
     const userIds = [...new Set(storiesInitiales.map(s => s.user_id))];
@@ -40,8 +43,6 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
         }
       });
   }, []);
-
-  const auteur = story ? (auteurProfils[story.user_id] || null) : null;
 
   useEffect(() => {
     if (!story) return;
@@ -90,12 +91,15 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     if (index > 0) setIndex(i => i - 1);
   }, [index]);
 
+  // ✅ Toggle like avec haptic
   const toggleLike = async () => {
     if (!profil || !story) return;
+    await haptiqueLeger();
     if (liked) {
       await supabase.from('stories_likes').delete().eq('story_id', story.id).eq('user_id', profil.id);
       setNbLikes(n => Math.max(0, n - 1));
     } else {
+      await haptiqueSucces();
       await supabase.from('stories_likes').insert({ story_id: story.id, user_id: profil.id });
       setNbLikes(n => n + 1);
     }
@@ -103,6 +107,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
   };
 
   const supprimerStory = () => {
+    haptiqueErreur();
     Alert.alert(
       'Supprimer cette story ?',
       'Elle sera supprimée définitivement.',
@@ -114,13 +119,9 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
           onPress: async () => {
             try {
               stopProgression();
-
-              // ✅ Extrait le bon chemin depuis l'URL publique Supabase
-              // URL format: .../storage/v1/object/public/stories/USER_ID/FICHIER.jpg
               const urlParts = story.media_url.split('/storage/v1/object/public/stories/');
-              const cheminFichier = urlParts[1]; // ex: "user-id/1782653199687.jpg"
+              const cheminFichier = urlParts[1];
 
-              // Supprime en base d'abord
               const { error: dbError } = await supabase
                 .from('stories')
                 .update({ actif: false })
@@ -133,15 +134,12 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                 return;
               }
 
-              // Supprime le fichier dans le storage
               if (cheminFichier) {
                 await supabase.storage.from('stories').remove([cheminFichier]);
               }
 
-              // Callback pour mettre à jour les listes parentes
               if (onStoryDeleted) onStoryDeleted(story.id);
 
-              // Met à jour la liste locale
               const newStories = stories.filter(s => s.id !== story.id);
               if (newStories.length === 0) {
                 onFermer();
@@ -149,7 +147,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                 setStories(newStories);
                 setIndex(Math.min(index, newStories.length - 1));
               }
-            } catch (e) {
+            } catch {
               Alert.alert('Erreur', 'Impossible de supprimer la story');
               setPause(false);
               demarrerProgression();
@@ -165,6 +163,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     await supabase.from('stories_reponses').insert({
       story_id: story.id, user_id: profil.id, texte: reponse.trim(),
     });
+    await haptiqueSucces();
     setReponse('');
     setShowReponse(false);
     setPause(false);
@@ -212,7 +211,6 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {/* Media */}
       <View
         style={StyleSheet.absoluteFill}
         onTouchStart={onTouchStart}
@@ -225,12 +223,9 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
         />
       </View>
 
-      {/* Dégradé haut */}
       <View style={styles.gradientHaut} pointerEvents="none" />
-      {/* Dégradé bas */}
       <View style={styles.gradientBas} pointerEvents="none" />
 
-      {/* Barres de progression */}
       <SafeAreaView style={styles.barresWrap} pointerEvents="none">
         <View style={styles.barres}>
           {stories.map((_, i) => (
@@ -249,7 +244,6 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
           ))}
         </View>
 
-        {/* Header */}
         <View style={styles.header} pointerEvents="box-none">
           <View style={styles.auteurRow}>
             {auteur?.avatar_url ? (
@@ -263,7 +257,6 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
               <Text style={styles.prenomTexte}>{auteur?.prenom || 'Luma'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={styles.tempsTexte}>{formatTemps(story.created_at)}</Text>
-                {/* ✅ Adresse affichée sous le prénom */}
                 {story.adresse && (
                   <>
                     <Text style={styles.tempsTexte}>·</Text>
@@ -281,7 +274,16 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
           </View>
 
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            {/* ✅ Bouton supprimer — uniquement pour l'auteur */}
+            {/* ✅ Signaler — seulement si c'est pas ma story */}
+            {!estMonStory && (
+              <BoutonSignaler
+                type="story"
+                id={story.id}
+                couleur="rgba(255,255,255,0.7)"
+                taille={18}
+              />
+            )}
+            {/* ✅ Supprimer — seulement si c'est ma story */}
             {estMonStory && (
               <TouchableOpacity
                 onPress={() => { stopProgression(); setPause(true); supprimerStory(); }}
@@ -302,14 +304,12 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
         </View>
       </SafeAreaView>
 
-      {/* Texte superposé */}
       {story.texte && (
         <View style={styles.texteWrap} pointerEvents="none">
           <Text style={styles.texteStory}>{story.texte}</Text>
         </View>
       )}
 
-      {/* Actions bas */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.actionsWrap}
@@ -347,6 +347,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
               </TouchableOpacity>
             )}
 
+            {/* ✅ Like avec haptic */}
             <TouchableOpacity onPress={toggleLike} style={styles.actionBtn}>
               <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={liked ? '#EF4444' : '#fff'} />
               {nbLikes > 0 && <Text style={styles.actionCount}>{nbLikes}</Text>}
@@ -374,76 +375,31 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  gradientHaut: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: 220,
-    zIndex: 5, backgroundColor: 'transparent',
-  },
-  gradientBas: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, height: 200,
-    zIndex: 5, backgroundColor: 'transparent',
-  },
+  gradientHaut: { position: 'absolute', top: 0, left: 0, right: 0, height: 220, zIndex: 5, backgroundColor: 'transparent' },
+  gradientBas: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 200, zIndex: 5, backgroundColor: 'transparent' },
   barresWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   barres: { flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingTop: 8 },
-  barreContainer: {
-    flex: 1, height: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 2, overflow: 'hidden',
-  },
+  barreContainer: { flex: 1, height: 2.5, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, overflow: 'hidden' },
   barre: { height: '100%', borderRadius: 2 },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingTop: 6, paddingBottom: 4,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 6, paddingBottom: 4 },
   auteurRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   avatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 2, borderColor: '#fff' },
   avatarPlaceholder: { backgroundColor: '#374151', alignItems: 'center', justifyContent: 'center' },
-  prenomTexte: {
-    color: '#fff', fontSize: 14, fontWeight: '600',
-    textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
-  },
+  prenomTexte: { color: '#fff', fontSize: 14, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
   tempsTexte: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
   typePill: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
-  supprimerBtn: {
-    padding: 6, backgroundColor: 'rgba(239,68,68,0.3)',
-    borderRadius: 20, alignItems: 'center', justifyContent: 'center',
-  },
+  supprimerBtn: { padding: 6, backgroundColor: 'rgba(239,68,68,0.3)', borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   fermerBtn: { padding: 4 },
-  texteWrap: {
-    position: 'absolute', bottom: 130, left: 20, right: 20,
-    alignItems: 'center', zIndex: 8,
-  },
-  texteStory: {
-    color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 8, overflow: 'hidden',
-  },
+  texteWrap: { position: 'absolute', bottom: 130, left: 20, right: 20, alignItems: 'center', zIndex: 8 },
+  texteStory: { color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, overflow: 'hidden' },
   actionsWrap: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10 },
-  actionsRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 44 : 20,
-    paddingTop: 12,
-  },
-  reponsePill: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)',
-    borderRadius: 24, paddingHorizontal: 14, paddingVertical: 10,
-  },
+  actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: Platform.OS === 'ios' ? 44 : 20, paddingTop: 12 },
+  reponsePill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 24, paddingHorizontal: 14, paddingVertical: 10 },
   reponsePillTexte: { color: 'rgba(255,255,255,0.6)', fontSize: 14 },
   actionBtn: { alignItems: 'center', gap: 2 },
   actionCount: { color: 'rgba(255,255,255,0.8)', fontSize: 11 },
-  reponseRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 12,
-    paddingBottom: Platform.OS === 'ios' ? 44 : 20,
-    paddingTop: 12,
-  },
-  reponseInput: {
-    flex: 1, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)',
-    borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10,
-    color: '#fff', fontSize: 14,
-  },
+  reponseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingBottom: Platform.OS === 'ios' ? 44 : 20, paddingTop: 12 },
+  reponseInput: { flex: 1, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, color: '#fff', fontSize: 14 },
   envoyerBtn: { padding: 8 },
   annulerBtn: { padding: 8 },
 });
