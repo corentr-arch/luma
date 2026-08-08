@@ -19,99 +19,33 @@ export default function MessagerieScreen({ navigation }) {
   const [chargementUsers, setChargementUsers] = useState(false);
   const t = (s) => s * facteurTexte;
 
-  useFocusEffect(
-    useCallback(() => {
-      chargerConversations();
-    }, [profil])
-  );
-
-  // Abonnement temps réel pour mettre à jour la liste
-  useEffect(() => {
-    if (!profil?.id) return;
-    const channel = supabase
-      .channel(`messagerie_${profil.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'messages_luma',
-      }, () => {
-        chargerConversations();
-      })
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [profil?.id]);
+  useFocusEffect(useCallback(() => { chargerConversations(); }, [profil]));
 
   const chargerConversations = async () => {
     if (!profil?.id) return;
     setChargement(true);
     try {
-      // Récupère les IDs des conversations
       const { data: memberships } = await supabase
-        .from('conversation_membres')
-        .select('conversation_id')
-        .eq('user_id', profil.id);
-
-      if (!memberships?.length) {
-        setConversations([]);
-        setChargement(false);
-        return;
-      }
-
+        .from('conversation_membres').select('conversation_id').eq('user_id', profil.id);
+      if (!memberships?.length) { setConversations([]); setChargement(false); return; }
       const convIds = memberships.map(m => m.conversation_id);
-
       const { data: convs } = await supabase
-        .from('conversations')
-        .select('id, updated_at')
-        .in('id', convIds)
-        .order('updated_at', { ascending: false })
-        .limit(30);
-
-      if (!convs?.length) {
-        setConversations([]);
-        setChargement(false);
-        return;
-      }
-
-      // Pour chaque conversation, charge membres + dernier message
+        .from('conversations').select('id, updated_at')
+        .in('id', convIds).order('updated_at', { ascending: false }).limit(30);
+      if (!convs?.length) { setConversations([]); setChargement(false); return; }
       const convsCompletes = await Promise.all(convs.map(async (conv) => {
         const [{ data: membres }, { data: msgs }] = await Promise.all([
-          supabase
-            .from('conversation_membres')
-            .select('user_id, profiles(id, prenom, avatar_url, handle)')
-            .eq('conversation_id', conv.id),
-          supabase
-            .from('messages_luma')
-            .select('id, contenu, auteur_id, lu, created_at')
-            .eq('conversation_id', conv.id)
-            .order('created_at', { ascending: false })
-            .limit(1),
+          supabase.from('conversation_membres').select('user_id, profiles(id, prenom, avatar_url)').eq('conversation_id', conv.id),
+          supabase.from('messages_luma').select('id, contenu, auteur_id, lu, created_at').eq('conversation_id', conv.id).order('created_at', { ascending: false }).limit(1),
         ]);
-
-        const autresMembres = (membres || [])
-          .filter(m => m.user_id !== profil.id)
-          .map(m => m.profiles)
-          .filter(Boolean);
-
-        // Compte messages non lus
-        const { count: nonLus } = await supabase
-          .from('messages_luma')
+        const { count: nonLus } = await supabase.from('messages_luma')
           .select('id', { count: 'exact', head: true })
-          .eq('conversation_id', conv.id)
-          .neq('auteur_id', profil.id)
-          .eq('lu', false);
-
-        return {
-          ...conv,
-          autresMembres,
-          dernierMessage: msgs?.[0] || null,
-          nonLus: nonLus || 0,
-        };
+          .eq('conversation_id', conv.id).neq('auteur_id', profil.id).eq('lu', false);
+        const autresMembres = (membres || []).filter(m => m.user_id !== profil.id).map(m => m.profiles).filter(Boolean);
+        return { ...conv, autresMembres, dernierMessage: msgs?.[0] || null, nonLus: nonLus || 0 };
       }));
-
       setConversations(convsCompletes);
-    } catch (e) {
-      console.error('Erreur conversations:', e);
-    }
+    } catch (e) { console.error(e); }
     setChargement(false);
   };
 
@@ -119,12 +53,8 @@ export default function MessagerieScreen({ navigation }) {
     if (!texte || texte.length < 2) { setUtilisateurs([]); return; }
     setChargementUsers(true);
     try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, prenom, avatar_url, handle')
-        .neq('id', profil?.id)
-        .or(`prenom.ilike.%${texte}%,handle.ilike.%${texte}%`)
-        .limit(20);
+      const { data } = await supabase.from('profiles').select('id, prenom, avatar_url, handle')
+        .neq('id', profil?.id).or(`prenom.ilike.%${texte}%,handle.ilike.%${texte}%`).limit(20);
       if (data) setUtilisateurs(data);
     } catch {}
     setChargementUsers(false);
@@ -137,75 +67,22 @@ export default function MessagerieScreen({ navigation }) {
 
   const creerOuOuvrirConversation = async (autreUser) => {
     if (!profil?.id) return;
-
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      Alert.alert('Erreur', 'Session expirée, reconnecte-toi');
-      return;
-    }
-
+    if (!session) { Alert.alert('Session expirée', 'Reconnecte-toi.'); return; }
     try {
-      // Cherche conversation existante
-      const { data: mesMembres } = await supabase
-        .from('conversation_membres')
-        .select('conversation_id')
-        .eq('user_id', profil.id);
-
-      const { data: saMembres } = await supabase
-        .from('conversation_membres')
-        .select('conversation_id')
-        .eq('user_id', autreUser.id);
-
+      const { data: mesMembres } = await supabase.from('conversation_membres').select('conversation_id').eq('user_id', profil.id);
+      const { data: saMembres } = await supabase.from('conversation_membres').select('conversation_id').eq('user_id', autreUser.id);
       const mesIds = new Set((mesMembres || []).map(m => m.conversation_id));
       const convCommune = (saMembres || []).find(m => mesIds.has(m.conversation_id));
-
-      if (convCommune) {
-        fermerModal();
-        navigation.navigate('Conversation', {
-          convId: convCommune.conversation_id,
-          interlocuteur: autreUser,
-        });
-        return;
-      }
-
-      // Crée une nouvelle conversation
-      const { data: nouvelleConv, error: errConv } = await supabase
-        .from('conversations')
-        .insert({ type: 'direct', nom: null })
-        .select('id')
-        .single();
-
-      if (errConv || !nouvelleConv) {
-        Alert.alert('Erreur', errConv?.message || 'Impossible de créer la conversation');
-        return;
-      }
-
-      // Ajoute les deux membres
-      const { error: errMembre1 } = await supabase
-        .from('conversation_membres')
-        .insert({ conversation_id: nouvelleConv.id, user_id: profil.id });
-
-      if (errMembre1) {
-        Alert.alert('Erreur', errMembre1.message);
-        return;
-      }
-
-      await supabase
-        .from('conversation_membres')
-        .insert({ conversation_id: nouvelleConv.id, user_id: autreUser.id });
-
+      if (convCommune) { fermerModal(); navigation.navigate('Conversation', { convId: convCommune.conversation_id, interlocuteur: autreUser }); return; }
+      const { data: nouvelleConv, error } = await supabase.from('conversations').insert({ type: 'direct' }).select('id').single();
+      if (error || !nouvelleConv) { Alert.alert('Erreur', error?.message); return; }
+      await supabase.from('conversation_membres').insert({ conversation_id: nouvelleConv.id, user_id: profil.id });
+      await supabase.from('conversation_membres').insert({ conversation_id: nouvelleConv.id, user_id: autreUser.id });
       fermerModal();
-      navigation.navigate('Conversation', {
-        convId: nouvelleConv.id,
-        interlocuteur: autreUser,
-      });
-
-      // Recharge la liste
+      navigation.navigate('Conversation', { convId: nouvelleConv.id, interlocuteur: autreUser });
       setTimeout(chargerConversations, 500);
-
-    } catch (e) {
-      Alert.alert('Erreur', String(e?.message || e));
-    }
+    } catch (e) { Alert.alert('Erreur', String(e?.message || e)); }
   };
 
   const formatTemps = (dateStr) => {
@@ -221,66 +98,64 @@ export default function MessagerieScreen({ navigation }) {
     return new Date(dateStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   };
 
-  const fermerModal = () => {
-    setShowNouvelleConv(false);
-    setRechercheUser('');
-    setUtilisateurs([]);
-  };
+  const fermerModal = () => { setShowNouvelleConv(false); setRechercheUser(''); setUtilisateurs([]); };
 
   const convsFiltrees = conversations.filter(conv =>
-    !recherche || conv.autresMembres?.some(m =>
-      m?.prenom?.toLowerCase().includes(recherche.toLowerCase()) ||
-      m?.handle?.toLowerCase().includes(recherche.toLowerCase())
-    )
+    !recherche || conv.autresMembres?.some(m => m?.prenom?.toLowerCase().includes(recherche.toLowerCase()))
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <Text style={[styles.titre, { color: theme.text, fontSize: t(22) }]}>Messages</Text>
+    <View style={[styles.container, { backgroundColor: '#fafaf8' }]}>
+      {/* Header style Apple */}
+      <View style={styles.header}>
+        <Text style={[styles.titre, { fontSize: t(28) }]}>Messages</Text>
         <TouchableOpacity
-          style={[styles.nouveauBtn, { backgroundColor: '#111' }]}
+          style={styles.nouveauBtn}
           onPress={() => { setShowNouvelleConv(true); setRechercheUser(''); setUtilisateurs([]); }}
+          activeOpacity={0.75}
         >
-          <Ionicons name="create-outline" size={18} color="#fff" />
-          <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Nouveau</Text>
+          <Ionicons name="create-outline" size={16} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '600' }}>Nouveau</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.searchWrap, { backgroundColor: theme.card, borderColor: theme.border, margin: 12, marginBottom: 6 }]}>
-        <Ionicons name="search-outline" size={15} color={theme.text3} />
+      {/* Barre recherche style iOS */}
+      <View style={styles.searchWrap}>
+        <Ionicons name="search-outline" size={15} color="#aaa" />
         <TextInput
-          style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
-          placeholder="Rechercher une conversation..."
-          placeholderTextColor={theme.text3}
+          style={[styles.searchInput, { fontSize: t(14) }]}
+          placeholder="Rechercher..."
+          placeholderTextColor="#aaa"
           value={recherche}
           onChangeText={setRecherche}
         />
         {recherche.length > 0 && (
           <TouchableOpacity onPress={() => setRecherche('')}>
-            <Ionicons name="close-circle" size={16} color={theme.text3} />
+            <Ionicons name="close-circle" size={16} color="#aaa" />
           </TouchableOpacity>
         )}
       </View>
 
       {chargement ? (
-        <View style={styles.vide}><ActivityIndicator color="#2563EB" /></View>
+        <View style={styles.vide}><ActivityIndicator color="#111" /></View>
       ) : convsFiltrees.length === 0 ? (
         <View style={styles.vide}>
-          <Ionicons name="chatbubbles-outline" size={52} color={theme.text3} />
-          <Text style={{ color: theme.text, fontSize: t(17), fontWeight: '600', marginTop: 12 }}>
+          <View style={styles.videIconeWrap}>
+            <Ionicons name="chatbubbles-outline" size={30} color="#aaa" />
+          </View>
+          <Text style={{ color: '#111', fontSize: t(16), fontWeight: '600', marginTop: 12 }}>
             {recherche ? 'Aucune conversation' : 'Aucun message'}
           </Text>
-          <Text style={{ color: theme.text3, fontSize: t(13), textAlign: 'center', marginTop: 4 }}>
-            {!recherche && "Démarre une conversation avec quelqu'un !"}
+          <Text style={{ color: '#aaa', fontSize: t(13), marginTop: 4, textAlign: 'center' }}>
+            {!recherche && "Démarre une conversation !"}
           </Text>
           {!recherche && (
             <TouchableOpacity
-              style={[styles.nouveauBtnVide, { backgroundColor: '#111' }]}
+              style={styles.videBtn}
               onPress={() => { setShowNouvelleConv(true); setRechercheUser(''); setUtilisateurs([]); }}
             >
-              <Ionicons name="create-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(14), fontWeight: '500' }}>Nouvelle conversation</Text>
+              <Ionicons name="create-outline" size={16} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: t(14), fontWeight: '600' }}>Nouvelle conversation</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -288,44 +163,40 @@ export default function MessagerieScreen({ navigation }) {
         <FlatList
           data={convsFiltrees}
           keyExtractor={item => String(item.id)}
+          contentContainerStyle={{ paddingBottom: 20 }}
           renderItem={({ item }) => {
             const autre = item.autresMembres?.[0];
             const dernierMsg = item.dernierMessage;
-            const nom = autre?.prenom || autre?.handle || 'Utilisateur';
+            const nom = autre?.prenom || 'Utilisateur';
             return (
               <TouchableOpacity
-                style={[styles.convItem, { borderBottomColor: theme.border }]}
-                onPress={() => navigation.navigate('Conversation', {
-                  convId: item.id,
-                  interlocuteur: autre,
-                })}
+                style={styles.convItem}
+                onPress={() => navigation.navigate('Conversation', { convId: item.id, interlocuteur: autre })}
                 activeOpacity={0.7}
               >
                 {autre?.avatar_url ? (
                   <Image source={{ uri: autre.avatar_url }} style={styles.convAvatar} />
                 ) : (
                   <View style={[styles.convAvatar, styles.avatarPlaceholder]}>
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 18 }}>
+                    <Text style={{ color: '#2563EB', fontWeight: '700', fontSize: 20 }}>
                       {nom[0].toUpperCase()}
                     </Text>
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <Text style={{ color: theme.text, fontSize: t(15), fontWeight: item.nonLus > 0 ? '700' : '500' }}>
+                    <Text style={{ color: '#111', fontSize: t(15), fontWeight: item.nonLus > 0 ? '700' : '500' }}>
                       {nom}
                     </Text>
                     {dernierMsg && (
-                      <Text style={{ color: theme.text3, fontSize: t(11) }}>
+                      <Text style={{ color: '#aaa', fontSize: t(11) }}>
                         {formatTemps(dernierMsg.created_at)}
                       </Text>
                     )}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text style={{ color: item.nonLus > 0 ? theme.text : theme.text3, fontSize: t(13), fontWeight: item.nonLus > 0 ? '500' : '400', flex: 1 }} numberOfLines={1}>
-                      {dernierMsg
-                        ? (dernierMsg.auteur_id === profil?.id ? 'Toi : ' : '') + dernierMsg.contenu
-                        : "Démarre la conversation !"}
+                    <Text style={{ color: item.nonLus > 0 ? '#111' : '#aaa', fontSize: t(13), fontWeight: item.nonLus > 0 ? '500' : '400', flex: 1 }} numberOfLines={1}>
+                      {dernierMsg ? (dernierMsg.auteur_id === profil?.id ? 'Toi : ' : '') + dernierMsg.contenu : "Démarre la conversation !"}
                     </Text>
                     {item.nonLus > 0 && (
                       <View style={styles.badgeNonLus}>
@@ -339,47 +210,38 @@ export default function MessagerieScreen({ navigation }) {
               </TouchableOpacity>
             );
           }}
-          contentContainerStyle={{ paddingBottom: 20 }}
         />
       )}
 
-      {/* Modal nouvelle conversation */}
       {showNouvelleConv && (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
-        >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={fermerModal} />
-          <View style={[styles.modal, { backgroundColor: theme.card }]}>
+          <View style={styles.modal}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
-              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '600' }}>
-                Nouvelle conversation
-              </Text>
-              <TouchableOpacity onPress={fermerModal}>
-                <Ionicons name="close" size={22} color={theme.text3} />
+              <Text style={{ color: '#111', fontSize: t(17), fontWeight: '600' }}>Nouvelle conversation</Text>
+              <TouchableOpacity onPress={fermerModal} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={16} color="#888" />
               </TouchableOpacity>
             </View>
-
-            <View style={[styles.searchWrap, { backgroundColor: theme.bg, borderColor: theme.border, margin: 0, marginBottom: 8 }]}>
-              <Ionicons name="search-outline" size={15} color={theme.text3} />
+            <View style={styles.searchWrapModal}>
+              <Ionicons name="search-outline" size={15} color="#aaa" />
               <TextInput
-                style={[styles.searchInput, { color: theme.text, fontSize: t(14) }]}
+                style={[styles.searchInput, { fontSize: t(14) }]}
                 placeholder="Cherche par prénom ou @handle..."
-                placeholderTextColor={theme.text3}
+                placeholderTextColor="#aaa"
                 value={rechercheUser}
                 onChangeText={setRechercheUser}
                 autoFocus
               />
               {rechercheUser.length > 0 && (
                 <TouchableOpacity onPress={() => { setRechercheUser(''); setUtilisateurs([]); }}>
-                  <Ionicons name="close-circle" size={15} color={theme.text3} />
+                  <Ionicons name="close-circle" size={15} color="#aaa" />
                 </TouchableOpacity>
               )}
             </View>
-
             {chargementUsers ? (
-              <ActivityIndicator style={{ marginVertical: 20 }} color="#2563EB" />
+              <ActivityIndicator style={{ marginVertical: 20 }} color="#111" />
             ) : utilisateurs.length > 0 ? (
               <FlatList
                 data={utilisateurs}
@@ -387,42 +249,33 @@ export default function MessagerieScreen({ navigation }) {
                 keyboardShouldPersistTaps="handled"
                 style={{ maxHeight: 300 }}
                 renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.userItem, { borderBottomColor: theme.border }]}
-                    onPress={() => creerOuOuvrirConversation(item)}
-                  >
+                  <TouchableOpacity style={styles.userItem} onPress={() => creerOuOuvrirConversation(item)}>
                     {item.avatar_url ? (
-                      <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+                      <Image source={{ uri: item.avatar_url }} style={styles.userAvatar} />
                     ) : (
-                      <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>
-                          {(item.prenom || item.handle || '?')[0].toUpperCase()}
+                      <View style={[styles.userAvatar, styles.avatarPlaceholder]}>
+                        <Text style={{ color: '#2563EB', fontWeight: '700', fontSize: 16 }}>
+                          {(item.prenom || '?')[0].toUpperCase()}
                         </Text>
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: t(15), fontWeight: '500' }}>
-                        {item.prenom}
-                      </Text>
-                      {item.handle && (
-                        <Text style={{ color: theme.text3, fontSize: t(12) }}>{item.handle}</Text>
-                      )}
+                      <Text style={{ color: '#111', fontSize: t(15), fontWeight: '500' }}>{item.prenom}</Text>
+                      {item.handle && <Text style={{ color: '#aaa', fontSize: t(12) }}>{item.handle}</Text>}
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color={theme.text3} />
+                    <Ionicons name="chevron-forward" size={16} color="#ddd" />
                   </TouchableOpacity>
                 )}
               />
             ) : rechercheUser.length >= 2 ? (
               <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-                <Ionicons name="person-outline" size={36} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(14), marginTop: 8 }}>
-                  Aucun utilisateur trouvé
-                </Text>
+                <Ionicons name="person-outline" size={32} color="#ddd" />
+                <Text style={{ color: '#aaa', fontSize: t(14), marginTop: 8 }}>Aucun utilisateur trouvé</Text>
               </View>
             ) : (
               <View style={{ alignItems: 'center', paddingVertical: 28 }}>
-                <Ionicons name="people-outline" size={36} color={theme.text3} />
-                <Text style={{ color: theme.text3, fontSize: t(13), marginTop: 10, textAlign: 'center', lineHeight: 20 }}>
+                <Ionicons name="people-outline" size={36} color="#ddd" />
+                <Text style={{ color: '#aaa', fontSize: t(13), marginTop: 10, textAlign: 'center', lineHeight: 20 }}>
                   Tape le prénom ou le @handle{'\n'}d'un utilisateur Luma
                 </Text>
               </View>
@@ -437,21 +290,24 @@ export default function MessagerieScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, paddingTop: 56, borderBottomWidth: 0.5 },
-  titre: { fontWeight: '600' },
-  nouveauBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
-  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, padding: 10, borderWidth: 0.5 },
-  searchInput: { flex: 1 },
-  vide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 32 },
-  nouveauBtnVide: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 12 },
-  convItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingHorizontal: 16, borderBottomWidth: 0.5 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 58 : 20, paddingBottom: 12 },
+  titre: { fontWeight: '700', color: '#111', letterSpacing: -0.5 },
+  nouveauBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#111', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f0f0ee', borderRadius: 13, padding: 11, marginHorizontal: 16, marginBottom: 8 },
+  searchWrapModal: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f0f0ee', borderRadius: 13, padding: 11, marginBottom: 10 },
+  searchInput: { flex: 1, color: '#111' },
+  vide: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  videIconeWrap: { width: 60, height: 60, borderRadius: 18, backgroundColor: '#f0f0ee', alignItems: 'center', justifyContent: 'center' },
+  videBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#111', borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 16 },
+  convItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.05)' },
   convAvatar: { width: 52, height: 52, borderRadius: 26, flexShrink: 0 },
-  avatar: { width: 42, height: 42, borderRadius: 21 },
-  avatarPlaceholder: { backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
-  badgeNonLus: { backgroundColor: '#2563EB', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, marginLeft: 6 },
-  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100 },
-  modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 12 },
+  userAvatar: { width: 42, height: 42, borderRadius: 21 },
+  avatarPlaceholder: { backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  badgeNonLus: { backgroundColor: '#111', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, marginLeft: 6 },
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100 },
+  modal: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingTop: 12 },
   modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: 16 },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  userItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  modalCloseBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0ee', alignItems: 'center', justifyContent: 'center' },
+  userItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.05)' },
 });

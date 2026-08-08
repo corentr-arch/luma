@@ -47,12 +47,11 @@ const LIEUX_CATEGORIES = {
 
 function getLieuConfig(categorie, sousCategorie) {
   const sc = (sousCategorie || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const cat = (categorie || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (sc.includes('concert') || sc.includes('musical')) return LIEUX_CATEGORIES['Salle de concert'];
-  if (sc.includes('cinema') || sc.includes('cinéma') || cat === 'cinema') return LIEUX_CATEGORIES['Cinéma'];
+  if (sc.includes('cinema') || sc.includes('cinéma')) return LIEUX_CATEGORIES['Cinéma'];
   if (sc.includes('theatre') || sc.includes('théâtre')) return LIEUX_CATEGORIES['Théâtre'];
   if (sc.includes('opera') || sc.includes('opéra')) return LIEUX_CATEGORIES['Opéra'];
-  if (sc.includes('musee') || sc.includes('musée') || sc.includes('fondation')) return LIEUX_CATEGORIES['Musée'];
+  if (sc.includes('musee') || sc.includes('musée')) return LIEUX_CATEGORIES['Musée'];
   if (sc.includes('stade')) return LIEUX_CATEGORIES['Stade'];
   if (sc.includes('piscine')) return LIEUX_CATEGORIES['Piscine'];
   if (sc.includes('sport')) return LIEUX_CATEGORIES['Salle de sport'];
@@ -65,9 +64,7 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -84,15 +81,14 @@ function getPlageDates(filtre, datePrecise) {
   }
 }
 
-// ── Marqueurs ─────────────────────────────────────────────────────────────────
-
+// ── Marqueurs ─────────────────────────────────────────────────────────────
 const MarqueurCommunautaire = memo(({ id, latitude, longitude, categorie, onPress }) => {
   const cat = CATEGORIES[categorie] || { forte: '#2563EB', icone: 'construct-outline' };
   return (
     <Marker coordinate={{ latitude, longitude }} onPress={(e) => { e.stopPropagation(); onPress(); }}
       tracksViewChanges={false} calloutEnabled={false} identifier={`ev_${id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={2}>
-      <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
-        <Ionicons name={cat.icone} size={14} color={cat.forte} />
+      <View pointerEvents="none" style={[styles.marqueur, { borderColor: cat.forte }]}>
+        <Ionicons name={cat.icone} size={13} color={cat.forte} />
       </View>
     </Marker>
   );
@@ -104,8 +100,8 @@ const MarqueurOfficiel = memo(({ id, latitude, longitude, categorie, onPress }) 
     <Marker coordinate={{ latitude: parseFloat(latitude), longitude: parseFloat(longitude) }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
       tracksViewChanges={false} calloutEnabled={false} identifier={`off_${id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={3}>
-      <View pointerEvents="none" style={[styles.mRond, { borderColor: cat.forte }]}>
-        <Ionicons name={cat.icone.replace('-outline', '')} size={13} color={cat.forte} />
+      <View pointerEvents="none" style={[styles.marqueur, { borderColor: cat.forte }]}>
+        <Ionicons name={cat.icone.replace('-outline', '')} size={12} color={cat.forte} />
       </View>
     </Marker>
   );
@@ -117,7 +113,7 @@ const MarqueurLieu = memo(({ lieu, onPress }) => {
     <Marker coordinate={{ latitude: parseFloat(lieu.latitude), longitude: parseFloat(lieu.longitude) }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
       tracksViewChanges={false} calloutEnabled={false} identifier={`lieu_${lieu.id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={1}>
-      <View pointerEvents="none" style={[styles.mRondSmall, { borderColor: config.couleur }]}>
+      <View pointerEvents="none" style={[styles.marqueurSmall, { borderColor: config.couleur }]}>
         <Ionicons name={config.icone} size={10} color={config.couleur} />
       </View>
     </Marker>
@@ -129,21 +125,19 @@ const MarqueurStory = memo(({ story, onPress }) => {
   return (
     <Marker coordinate={{ latitude: story.latitude, longitude: story.longitude }}
       onPress={(e) => { e.stopPropagation(); onPress(); }}
-      tracksViewChanges={false} calloutEnabled={false}
-      identifier={`story_${story.id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={10}>
-      <View pointerEvents="none" style={[styles.mStory, { borderColor: couleur }]}>
-        <Ionicons name="camera" size={13} color={couleur} />
-        <View style={[styles.mStoryDot, { backgroundColor: couleur }]} />
+      tracksViewChanges={false} calloutEnabled={false} identifier={`story_${story.id}`} anchor={{ x: 0.5, y: 0.5 }} zIndex={10}>
+      <View pointerEvents="none" style={[styles.marqueurStory, { borderColor: couleur }]}>
+        <Ionicons name="camera" size={12} color={couleur} />
+        <View style={[styles.marqueurStoryDot, { backgroundColor: couleur }]} />
       </View>
     </Marker>
   );
 });
 
-// ── Écran principal ────────────────────────────────────────────────────────────
-
+// ── Écran principal ────────────────────────────────────────────────────────
 export default function CarteScreen({ navigation }) {
   const { evenements, erreurReseau, chargerEvenements } = useEvenements();
-  const { theme, facteurTexte, ajouterFavori, estFavori, evenementCible, setEvenementCible, profil } = useApp();
+  const { theme, facteurTexte, ajouterFavori, estFavori, evenementCible, setEvenementCible } = useApp();
 
   const [pointSelectionne, setPointSelectionne] = useState(null);
   const [officielSelectionne, setOfficielSelectionne] = useState(null);
@@ -162,7 +156,6 @@ export default function CarteScreen({ navigation }) {
   const [datePrecise, setDatePrecise] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [rayon, setRayon] = useState(null);
-  const [interetsCharges, setInteretsCharges] = useState(false);
   const [menuFabVisible, setMenuFabVisible] = useState(false);
   const [positionUser, setPositionUser] = useState(null);
   const [lieuxOfficiels, setLieuxOfficiels] = useState([]);
@@ -170,82 +163,55 @@ export default function CarteScreen({ navigation }) {
   const [stories, setStories] = useState([]);
   const [storyViewerVisible, setStoryViewerVisible] = useState(false);
   const [storiesSelectionnees, setStoriesSelectionnees] = useState([]);
-  const [regionActuelle, setRegionActuelle] = useState({ ...PARIS, latitudeDelta: 0.08, longitudeDelta: 0.08 });
-  const [pret, setPret] = useState(false);
   const [zoomSuffisant, setZoomSuffisant] = useState(false);
+  const [pret, setPret] = useState(false);
 
-  // ✅ Recherche d'adresse
+  // Recherche adresse
   const [showRecherche, setShowRecherche] = useState(false);
   const [texteRecherche, setTexteRecherche] = useState('');
   const [resultatsRecherche, setResultatsRecherche] = useState([]);
-  const [chargementRecherche, setChargementRecherche] = useState(false);
+  const rechercheTimer = useRef(null);
 
   const slideAnim = useRef(new Animated.Value(300)).current;
   const slideAnimOfficiel = useRef(new Animated.Value(300)).current;
   const slideAnimLieu = useRef(new Animated.Value(300)).current;
   const menuAnim = useRef(new Animated.Value(-300)).current;
   const mapRef = useRef(null);
-  const rechercheTimer = useRef(null);
   const t = (size) => size * facteurTexte;
-
-  const chargerInterets = async () => {
-    if (interetsCharges) return;
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: p } = await supabase.from('profiles').select('centres_interet').eq('id', user.id).single();
-        if (p?.centres_interet?.length > 0) setFiltresCategories(p.centres_interet);
-      }
-    } catch {}
-    setInteretsCharges(true);
-  };
 
   const chargerStories = async () => {
     try {
-      const { data } = await supabase
-        .from('stories').select('*').eq('actif', true)
-        .gte('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false }).limit(50);
+      const { data } = await supabase.from('stories').select('*').eq('actif', true)
+        .gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(50);
       if (data) setStories(data);
     } catch {}
   };
 
   const chargerLieux = async (pos, rayonM) => {
     try {
-      const { data } = await supabase.rpc('lieux_dans_rayon', {
-        lat: pos.latitude, lng: pos.longitude, rayon_metres: rayonM,
-      });
+      const { data } = await supabase.rpc('lieux_dans_rayon', { lat: pos.latitude, lng: pos.longitude, rayon_metres: rayonM });
       if (data) setLieuxOfficiels(data);
     } catch {}
   };
 
   const chargerEvenementsOfficiels = async () => {
     try {
-      const maintenant = new Date().toISOString();
-      const { data } = await supabase
-        .from('evenements_officiels')
-        .select('id, titre, description, categorie, lieu, adresse, latitude, longitude, date_debut, date_fin, url, organisateur, source, gratuit, prix_min, salle, lieu_id')
-        .eq('actif', true)
-        .not('latitude', 'is', null)
-        .not('longitude', 'is', null)
-        .gte('latitude', 48.1).lte('latitude', 49.2)   // ✅ IDF uniquement
-        .gte('longitude', 1.4).lte('longitude', 3.6)
-        .gte('date_debut', maintenant)
-        .order('date_debut', { ascending: true })
-        .limit(2000);
+      const { data } = await supabase.from('evenements_officiels')
+        .select('id, titre, categorie, lieu, adresse, latitude, longitude, date_debut, date_fin, url, organisateur, gratuit, prix_min, salle, lieu_id')
+        .eq('actif', true).not('latitude', 'is', null).not('longitude', 'is', null)
+        .gte('latitude', 48.1).lte('latitude', 49.2).gte('longitude', 1.4).lte('longitude', 3.6)
+        .gte('date_debut', new Date().toISOString()).order('date_debut', { ascending: true }).limit(2000);
       if (data) setEvenementsOfficiels(data);
     } catch {}
   };
 
   useEffect(() => {
     (async () => {
-      await chargerInterets();
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
         setPositionUser(pos);
-        setRegionActuelle({ ...pos, latitudeDelta: 0.04, longitudeDelta: 0.04 });
         chargerLieux(pos, 50000);
       } else {
         chargerLieux(PARIS, 50000);
@@ -256,9 +222,7 @@ export default function CarteScreen({ navigation }) {
     })();
   }, []);
 
-  useFocusEffect(useCallback(() => {
-    if (pret) chargerStories();
-  }, [pret]));
+  useFocusEffect(useCallback(() => { if (pret) chargerStories(); }, [pret]));
 
   useFocusEffect(useCallback(() => {
     if (!evenementCible || !pret) return;
@@ -268,17 +232,15 @@ export default function CarteScreen({ navigation }) {
     setTimeout(() => ouvrirPopupEvenement(ev), 800);
   }, [evenementCible, pret]));
 
-  // ✅ Recherche d'adresse via Nominatim
+  // Recherche adresse
   const rechercherAdresse = useCallback(async (texte) => {
     if (!texte || texte.length < 2) { setResultatsRecherche([]); return; }
-    setChargementRecherche(true);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(texte + ' Paris')}&format=json&limit=5&addressdetails=1`;
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(texte + ' Paris')}&format=json&limit=5`;
       const r = await fetch(url, { headers: { 'User-Agent': 'LumaApp/1.0' } });
       const data = await r.json();
       setResultatsRecherche(data || []);
     } catch {}
-    setChargementRecherche(false);
   }, []);
 
   useEffect(() => {
@@ -293,30 +255,17 @@ export default function CarteScreen({ navigation }) {
     setShowRecherche(false);
     setTexteRecherche('');
     setResultatsRecherche([]);
-    mapRef.current?.animateToRegion({
-      latitude: lat, longitude: lon,
-      latitudeDelta: 0.01, longitudeDelta: 0.01,
-    }, 600);
+    mapRef.current?.animateToRegion({ latitude: lat, longitude: lon, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
   };
 
   const recentrerSur = useCallback((lat, lon) => {
-    if (!mapRef.current) return;
-    mapRef.current.animateToRegion({
-      latitude: parseFloat(lat) - 0.003, longitude: parseFloat(lon),
-      latitudeDelta: 0.012, longitudeDelta: 0.012,
-    }, 500);
+    mapRef.current?.animateToRegion({ latitude: parseFloat(lat) - 0.003, longitude: parseFloat(lon), latitudeDelta: 0.012, longitudeDelta: 0.012 }, 500);
   }, []);
 
-  // ✅ Centrer sur ma position
   const centrerSurMoi = useCallback(async () => {
-    if (mapRef.current && positionUser) {
-      mapRef.current.animateToRegion({
-        ...positionUser,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      }, 600);
+    if (positionUser) {
+      mapRef.current?.animateToRegion({ ...positionUser, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 600);
     } else {
-      // Tente de récupérer la position si pas encore disponible
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status === 'granted') {
@@ -378,8 +327,7 @@ export default function CarteScreen({ navigation }) {
   };
 
   const fermerMenu = () => {
-    Animated.timing(menuAnim, { toValue: -300, useNativeDriver: true, duration: 250 })
-      .start(() => setMenuOuvert(false));
+    Animated.timing(menuAnim, { toValue: -300, useNativeDriver: true, duration: 250 }).start(() => setMenuOuvert(false));
   };
 
   const toutEffacer = () => {
@@ -388,10 +336,6 @@ export default function CarteScreen({ navigation }) {
     setAfficherLieux(false); setAfficherStories(true);
     setFiltreDate('tous'); setRayon(null);
   };
-
-  const toggleLieuCategorie = useCallback((cat) => {
-    setLieuxCategoriesActives(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
-  }, []);
 
   const plageDate = getPlageDates(filtreDate, datePrecise);
   const centre = positionUser || PARIS;
@@ -409,8 +353,7 @@ export default function CarteScreen({ navigation }) {
 
   const officielsFiltres = afficherOfficiels ? evenementsOfficiels.filter(ev => {
     const matchCat = filtresCategories.length === 0 || filtresCategories.includes(ev.categorie);
-    const matchRayon = !rayon || !positionUser || !ev.latitude || !ev.longitude ||
-      distanceKm(centre.latitude, centre.longitude, parseFloat(ev.latitude), parseFloat(ev.longitude)) * 1000 <= rayon;
+    const matchRayon = !rayon || !positionUser || !ev.latitude || !ev.longitude || distanceKm(centre.latitude, centre.longitude, parseFloat(ev.latitude), parseFloat(ev.longitude)) * 1000 <= rayon;
     let matchDate = true;
     if (plageDate) {
       if (!ev.date_debut) matchDate = false;
@@ -423,34 +366,17 @@ export default function CarteScreen({ navigation }) {
     ? lieuxOfficiels.filter(l => {
         const config = getLieuConfig(l.categorie, l.sous_categorie);
         const nomCat = Object.entries(LIEUX_CATEGORIES).find(([, c]) => c.couleur === config.couleur)?.[0];
-        const matchCat = lieuxCategoriesActives.includes(nomCat || l.sous_categorie || l.categorie);
-        const matchRayon = !rayon || !positionUser ||
-          distanceKm(centre.latitude, centre.longitude, parseFloat(l.latitude), parseFloat(l.longitude)) * 1000 <= rayon;
-        return matchCat && matchRayon;
+        return lieuxCategoriesActives.includes(nomCat || l.sous_categorie || l.categorie);
       }) : [];
 
   const storiesFiltrees = afficherStories ? stories.filter(s => s.latitude && s.longitude) : [];
 
-  // ✅ Compteur d'éléments visibles
   const totalVisible = evenementsFiltres.length + officielsFiltres.length + storiesFiltrees.length;
 
-  const compterLieuxParCategorie = (nomCat) => {
-    const config = LIEUX_CATEGORIES[nomCat];
-    if (!config) return 0;
-    return lieuxOfficiels.filter(l => getLieuConfig(l.categorie, l.sous_categorie).couleur === config.couleur).length;
-  };
-
-  const nbFiltresActifs =
-    filtresCategories.length + lieuxCategoriesActives.length +
+  const nbFiltresActifs = filtresCategories.length + lieuxCategoriesActives.length +
     (!afficherCommunautaires ? 1 : 0) + (!afficherOfficiels ? 1 : 0) +
     (afficherLieux ? 1 : 0) + (!afficherStories ? 1 : 0) +
     (filtreDate !== 'tous' ? 1 : 0) + (rayon ? 1 : 0);
-
-  const labelDateActif = filtreDate !== 'tous'
-    ? (filtreDate === 'date_precise'
-        ? datePrecise.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-        : FILTRES_DATE.find(f => f.key === filtreDate)?.label)
-    : null;
 
   const catSel = pointSelectionne ? (CATEGORIES[pointSelectionne.categorie] || CATEGORIES['Art']) : null;
   const configOfficiel = officielSelectionne ? (CATEGORIES[officielSelectionne.categorie] || CATEGORIES['Art']) : null;
@@ -459,11 +385,11 @@ export default function CarteScreen({ navigation }) {
   if (!pret) {
     return (
       <View style={{ flex: 1, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-          <Ionicons name="location" size={26} color="#fff" />
+        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+          <Ionicons name="location" size={28} color="#111" />
         </View>
-        <Text style={{ color: '#fff', fontSize: 22, fontWeight: '500' }}>Luma</Text>
-        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>Chargement de la carte...</Text>
+        <Text style={{ color: '#fff', fontSize: 28, fontWeight: '700', letterSpacing: -0.8 }}>Luma</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginTop: 6 }}>Chargement de la carte...</Text>
       </View>
     );
   }
@@ -473,19 +399,15 @@ export default function CarteScreen({ navigation }) {
       <MapView
         ref={mapRef}
         style={styles.map}
-        initialRegion={regionActuelle}
+        initialRegion={{ ...(positionUser || PARIS), latitudeDelta: 0.06, longitudeDelta: 0.06 }}
         showsPointsOfInterest={false}
         showsUserLocation
         showsMyLocationButton={false}
-        userInterfaceStyle={theme.bg === '#0A0A0A' ? 'dark' : 'light'}
-        clusterColor="#1E293B"
+        clusterColor="#111"
         clusterTextColor="#fff"
         clusterFontFamily="System"
         clusteringEnabled
         radius={36}
-        extent={512}
-        minZoom={1}
-        maxZoom={20}
         minPoints={4}
         animationEnabled={false}
         onPress={() => {
@@ -494,160 +416,93 @@ export default function CarteScreen({ navigation }) {
           if (showRecherche) { setShowRecherche(false); setTexteRecherche(''); }
           fermerToutesPopups();
         }}
-        onRegionChangeComplete={(region) => {
-          setRegionActuelle(region);
-          setZoomSuffisant(region.latitudeDelta < 0.25);
-        }}
+        onRegionChangeComplete={(region) => setZoomSuffisant(region.latitudeDelta < 0.25)}
       >
         {rayon && positionUser && (
-          <Circle center={centre} radius={rayon}
-            fillColor="rgba(37,99,235,0.05)" strokeColor="rgba(37,99,235,0.2)" strokeWidth={1} />
+          <Circle center={centre} radius={rayon} fillColor="rgba(37,99,235,0.05)" strokeColor="rgba(37,99,235,0.15)" strokeWidth={1} />
         )}
         {lieuxFiltres.map(lieu => (
           <MarqueurLieu key={`lieu_${lieu.id}`} lieu={lieu} onPress={() => ouvrirPopupLieu(lieu)} />
         ))}
         {officielsFiltres.map(ev => (
-          <MarqueurOfficiel key={`off_${ev.id}`} id={ev.id} latitude={ev.latitude}
-            longitude={ev.longitude} categorie={ev.categorie} onPress={() => ouvrirPopupOfficiel(ev)} />
+          <MarqueurOfficiel key={`off_${ev.id}`} id={ev.id} latitude={ev.latitude} longitude={ev.longitude} categorie={ev.categorie} onPress={() => ouvrirPopupOfficiel(ev)} />
         ))}
         {evenementsFiltres.map(p => (
-          <MarqueurCommunautaire key={`ev_${p.id}`} id={p.id} latitude={p.latitude}
-            longitude={p.longitude} categorie={p.categorie} onPress={() => ouvrirPopupEvenement(p)} />
+          <MarqueurCommunautaire key={`ev_${p.id}`} id={p.id} latitude={p.latitude} longitude={p.longitude} categorie={p.categorie} onPress={() => ouvrirPopupEvenement(p)} />
         ))}
         {storiesFiltrees.map(story => (
           <MarqueurStory key={`story_${story.id}`} story={story}
             onPress={() => {
-              // ✅ Ouvre toutes les stories proches (dans 200m)
-              const proches = storiesFiltrees.filter(s =>
-                distanceKm(story.latitude, story.longitude, s.latitude, s.longitude) < 0.2
-              );
+              const proches = storiesFiltrees.filter(s => distanceKm(story.latitude, story.longitude, s.latitude, s.longitude) < 0.2);
               setStoriesSelectionnees(proches.length > 0 ? proches : [story]);
               setStoryViewerVisible(true);
             }} />
         ))}
         {coordSurbrillance && (
-          <Marker key="surbrillance" coordinate={coordSurbrillance}
-            anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false} calloutEnabled={false} zIndex={999} onPress={() => {}}>
-            <View pointerEvents="none" style={{
-              width: 44, height: 44, borderRadius: 22,
-              borderWidth: 3, borderColor: couleurSurbrillance,
-              backgroundColor: couleurSurbrillance + '20',
-            }} />
+          <Marker key="surbrillance" coordinate={coordSurbrillance} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false} calloutEnabled={false} zIndex={999} onPress={() => {}}>
+            <View pointerEvents="none" style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 3, borderColor: couleurSurbrillance, backgroundColor: couleurSurbrillance + '20' }} />
           </Marker>
         )}
       </MapView>
 
-      {/* ── Bannière erreur réseau ── */}
-      {erreurReseau && (
-        <View style={styles.erreurBanner}>
-          <Ionicons name="wifi-outline" size={14} color="#fff" />
-          <Text style={{ color: '#fff', fontSize: 13, flex: 1 }}>Pas de connexion</Text>
-          <TouchableOpacity onPress={chargerEvenements} style={styles.erreurBtn}>
-            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>Réessayer</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── Filtres actifs ── */}
-      {nbFiltresActifs > 0 && (
-        <View style={styles.filtresActifsWrap}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
-            {labelDateActif && (
-              <TouchableOpacity style={[styles.pill, { backgroundColor: '#111', borderColor: '#333' }]}
-                onPress={() => setFiltreDate('tous')}>
-                <Ionicons name="calendar-outline" size={11} color="#fff" />
-                <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>{labelDateActif}</Text>
-                <Ionicons name="close" size={11} color="#fff" />
-              </TouchableOpacity>
-            )}
-            {rayon && (
-              <TouchableOpacity style={[styles.pill, { backgroundColor: '#DBEAFE', borderColor: '#2563EB' }]}
-                onPress={() => setRayon(null)}>
-                <Ionicons name="navigate-outline" size={11} color="#2563EB" />
-                <Text style={{ color: '#1E40AF', fontSize: t(11), fontWeight: '500' }}>
-                  {rayon >= 1000 ? `${rayon / 1000} km` : `${rayon} m`}
-                </Text>
-                <Ionicons name="close" size={11} color="#2563EB" />
-              </TouchableOpacity>
-            )}
-            {filtresCategories.map(cat => {
-              const c = CATEGORIES[cat] || { claire: '#F5F5F5', forte: '#888', texte: '#444', icone: 'apps-outline' };
-              return (
-                <TouchableOpacity key={cat}
-                  style={[styles.pill, { backgroundColor: c.claire, borderColor: c.forte }]}
-                  onPress={() => setFiltresCategories(prev => prev.filter(x => x !== cat))}>
-                  <Ionicons name={c.icone} size={11} color={c.forte} />
-                  <Text style={{ color: c.texte, fontSize: t(11), fontWeight: '500' }}>{cat}</Text>
-                  <Ionicons name="close" size={11} color={c.forte} />
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity style={[styles.pill, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}
-              onPress={toutEffacer}>
-              <Text style={{ color: '#EF4444', fontSize: t(11), fontWeight: '500' }}>Tout effacer</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      )}
-
-      {/* ── Header ── */}
+      {/* ── Header style Apple pill ── */}
       <View style={styles.header}>
         <TouchableOpacity
-          style={[styles.logoBtn, { backgroundColor: 'rgba(255,255,255,0.96)' }]}
+          style={styles.logoPill}
           onPress={menuOuvert ? fermerMenu : ouvrirMenu}
+          activeOpacity={0.85}
         >
-          <View style={styles.logoIcone}>
+          <View style={styles.logoDot}>
             <Ionicons name="location" size={11} color="#fff" />
           </View>
-          <Text style={[styles.logoTexte, { fontSize: t(15) }]}>Luma</Text>
+          <Text style={[styles.logoTxt, { fontSize: t(15) }]}>Luma</Text>
           {nbFiltresActifs > 0 && (
-            <View style={styles.filtreCount}>
-              <Text style={{ color: '#fff', fontSize: t(9), fontWeight: '700' }}>{nbFiltresActifs}</Text>
+            <View style={styles.filtreCountBadge}>
+              <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{nbFiltresActifs}</Text>
             </View>
           )}
-          <Ionicons name={menuOuvert ? 'chevron-up' : 'chevron-down'} size={13} color="#888" />
+          <Ionicons name={menuOuvert ? 'chevron-up' : 'chevron-down'} size={13} color="#aaa" />
         </TouchableOpacity>
 
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          {/* ✅ Bouton recherche adresse */}
           <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: showRecherche ? '#DBEAFE' : 'rgba(255,255,255,0.96)' }]}
+            style={[styles.headerIconBtn, showRecherche && { backgroundColor: '#DBEAFE' }]}
             onPress={() => { setShowRecherche(v => !v); if (!showRecherche) fermerMenu(); }}
+            activeOpacity={0.8}
           >
-            <Ionicons name="search" size={18} color={showRecherche ? '#2563EB' : '#888'} />
+            <Ionicons name="search" size={17} color={showRecherche ? '#2563EB' : '#666'} />
           </TouchableOpacity>
 
-          {/* ✅ Bouton centrer sur moi — plus visible */}
           <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: positionUser ? '#2563EB' : 'rgba(255,255,255,0.96)' }]}
+            style={[styles.headerIconBtn, positionUser && { backgroundColor: '#2563EB' }]}
             onPress={centrerSurMoi}
+            activeOpacity={0.8}
           >
-            <Ionicons name="navigate" size={18} color={positionUser ? '#fff' : '#888'} />
+            <Ionicons name="navigate" size={17} color={positionUser ? '#fff' : '#666'} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.96)' }]}
+            style={styles.headerIconBtn}
             onPress={() => navigation.navigate('Notifications')}
+            activeOpacity={0.8}
           >
-            <Ionicons name="notifications-outline" size={20} color="#111" />
+            <Ionicons name="notifications-outline" size={18} color="#666" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* ✅ Barre de recherche d'adresse */}
+      {/* ── Barre recherche adresse ── */}
       {showRecherche && (
         <View style={styles.rechercheContainer}>
           <View style={styles.rechercheBar}>
-            <Ionicons name="search-outline" size={16} color="#888" />
+            <Ionicons name="search-outline" size={15} color="#aaa" />
             <TextInput
-              style={styles.rechercheInput}
+              style={[styles.rechercheInput, { fontSize: t(14) }]}
               placeholder="Cherche une adresse, un lieu..."
               placeholderTextColor="#aaa"
               value={texteRecherche}
               onChangeText={setTexteRecherche}
               autoFocus
-              returnKeyType="search"
             />
             {texteRecherche.length > 0 && (
               <TouchableOpacity onPress={() => { setTexteRecherche(''); setResultatsRecherche([]); }}>
@@ -658,12 +513,13 @@ export default function CarteScreen({ navigation }) {
           {resultatsRecherche.length > 0 && (
             <View style={styles.rechercheResultats}>
               {resultatsRecherche.map((r, i) => (
-                <TouchableOpacity key={i}
-                  style={[styles.rechercheItem, i < resultatsRecherche.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: '#F0F0F0' }]}
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.rechercheItem, i < resultatsRecherche.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.05)' }]}
                   onPress={() => allerAdresse(r)}
                 >
                   <Ionicons name="location-outline" size={14} color="#2563EB" />
-                  <Text style={{ color: '#111', fontSize: 13, flex: 1 }} numberOfLines={2}>
+                  <Text style={{ color: '#111', fontSize: t(13), flex: 1 }} numberOfLines={2}>
                     {r.display_name.split(',').slice(0, 3).join(', ')}
                   </Text>
                 </TouchableOpacity>
@@ -673,103 +529,106 @@ export default function CarteScreen({ navigation }) {
         </View>
       )}
 
-      {/* ✅ Compteur d'éléments */}
-      {!menuOuvert && !showRecherche && totalVisible > 0 && (
-        <View style={styles.compteur}>
-          <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>
-            {totalVisible} élément{totalVisible > 1 ? 's' : ''}
-          </Text>
+      {/* ── Filtres actifs ── */}
+      {nbFiltresActifs > 0 && !menuOuvert && !showRecherche && (
+        <View style={styles.filtresActifsWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+            {filtreDate !== 'tous' && (
+              <TouchableOpacity style={[styles.filtrePill, { backgroundColor: '#111' }]} onPress={() => setFiltreDate('tous')}>
+                <Ionicons name="calendar-outline" size={11} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>
+                  {FILTRES_DATE.find(f => f.key === filtreDate)?.label}
+                </Text>
+                <Ionicons name="close" size={11} color="#fff" />
+              </TouchableOpacity>
+            )}
+            {rayon && (
+              <TouchableOpacity style={[styles.filtrePill, { backgroundColor: '#DBEAFE' }]} onPress={() => setRayon(null)}>
+                <Ionicons name="navigate-outline" size={11} color="#1D4ED8" />
+                <Text style={{ color: '#1D4ED8', fontSize: t(11), fontWeight: '500' }}>{rayon >= 1000 ? `${rayon / 1000} km` : `${rayon} m`}</Text>
+                <Ionicons name="close" size={11} color="#1D4ED8" />
+              </TouchableOpacity>
+            )}
+            {filtresCategories.map(cat => {
+              const c = CATEGORIES[cat] || { claire: '#f5f5f5', forte: '#888', texte: '#444' };
+              return (
+                <TouchableOpacity key={cat} style={[styles.filtrePill, { backgroundColor: c.claire }]} onPress={() => setFiltresCategories(prev => prev.filter(x => x !== cat))}>
+                  <Text style={{ color: c.texte, fontSize: t(11), fontWeight: '500' }}>{cat}</Text>
+                  <Ionicons name="close" size={11} color={c.forte} />
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity style={[styles.filtrePill, { backgroundColor: '#FEE2E2' }]} onPress={toutEffacer}>
+              <Text style={{ color: '#DC2626', fontSize: t(11), fontWeight: '500' }}>Tout effacer</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       )}
 
-      {/* ── Menu filtres ── */}
+      {/* ── Compteur ── */}
+      {!menuOuvert && !showRecherche && totalVisible > 0 && (
+        <View style={styles.compteur}>
+          <Ionicons name="map-pin" size={10} color="rgba(255,255,255,0.7)" />
+          <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>{totalVisible} éléments</Text>
+        </View>
+      )}
+
+      {/* ── Menu filtres style Apple ── */}
       {menuOuvert && (
-        <Animated.View style={[styles.menu, { backgroundColor: theme.card, transform: [{ translateY: menuAnim }] }]}>
-          <View style={[styles.menuHeader, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.menuTitre, { color: theme.text, fontSize: t(14) }]}>Filtres</Text>
+        <Animated.View style={[styles.menu, { transform: [{ translateY: menuAnim }] }]}>
+          <View style={styles.menuTopBar}>
+            <Text style={[styles.menuTitre, { fontSize: t(15) }]}>Filtres</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {nbFiltresActifs > 0 && (
-                <TouchableOpacity onPress={toutEffacer} style={[styles.effacerBtn, { backgroundColor: '#FEE2E2' }]}>
-                  <Text style={{ color: '#EF4444', fontSize: t(11), fontWeight: '500' }}>Effacer</Text>
+                <TouchableOpacity onPress={toutEffacer} style={styles.menuEffacerBtn}>
+                  <Text style={{ color: '#DC2626', fontSize: t(12), fontWeight: '500' }}>Effacer</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={fermerMenu} style={[styles.fermerBtn, { backgroundColor: '#111' }]}>
-                <Ionicons name="chevron-up" size={16} color="#fff" />
+              <TouchableOpacity onPress={fermerMenu} style={styles.menuFermerBtn}>
+                <Ionicons name="chevron-up" size={15} color="#fff" />
               </TouchableOpacity>
             </View>
           </View>
+
           <ScrollView showsVerticalScrollIndicator={false}>
-            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>AFFICHAGE</Text>
+            <Text style={styles.menuSection}>AFFICHAGE</Text>
             {[
-              { key: 'comm',    label: 'Communautaires', desc: `${evenements.length} événements`,          icon: 'people-outline',   actif: afficherCommunautaires, toggle: () => setAfficherCommunautaires(v => !v), couleur: '#111' },
-              { key: 'off',     label: 'Agenda Paris',   desc: `${evenementsOfficiels.length} événements`, icon: 'calendar-outline', actif: afficherOfficiels,      toggle: () => setAfficherOfficiels(v => !v),      couleur: '#2563EB' },
-              { key: 'lieux',   label: 'Lieux',          desc: 'Salles, cinémas, services...',             icon: 'location-outline', actif: afficherLieux,          toggle: () => setAfficherLieux(v => !v),          couleur: '#475569' },
-              { key: 'stories', label: 'Stories',        desc: `${stories.length} stories actives`,        icon: 'camera-outline',   actif: afficherStories,        toggle: () => setAfficherStories(v => !v),        couleur: '#8B5CF6' },
+              { key: 'comm',    label: 'Communautaires', desc: `${evenements.length}`, icon: 'people-outline',   actif: afficherCommunautaires, toggle: () => setAfficherCommunautaires(v => !v), bg: '#111', bgActif: '#111' },
+              { key: 'off',     label: 'Agenda Paris',   desc: `${evenementsOfficiels.length}`, icon: 'calendar-outline', actif: afficherOfficiels,      toggle: () => setAfficherOfficiels(v => !v),      bg: '#DBEAFE', bgActif: '#2563EB' },
+              { key: 'stories', label: 'Stories',        desc: `${stories.length}`,  icon: 'camera-outline',   actif: afficherStories,        toggle: () => setAfficherStories(v => !v),        bg: '#F3E8FF', bgActif: '#7C3AED' },
+              { key: 'lieux',   label: 'Lieux',          desc: 'Cinémas, salles...', icon: 'location-outline', actif: afficherLieux,          toggle: () => setAfficherLieux(v => !v),          bg: '#F5F5F5', bgActif: '#64748B' },
             ].map(item => (
-              <TouchableOpacity key={item.key}
-                style={[styles.menuItem, item.actif && {
-                  backgroundColor:
-                    item.couleur === '#111' ? '#111' :
-                    item.couleur === '#2563EB' ? '#EFF6FF' :
-                    item.couleur === '#8B5CF6' ? '#F3E8FF' : '#F1F5F9',
-                }]}
-                onPress={item.toggle}>
-                <View style={[styles.menuIcone, { backgroundColor: item.actif ? item.couleur : '#F5F5F5' }]}>
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.menuItem, item.actif && { backgroundColor: item.key === 'comm' ? '#111' : item.bg }]}
+                onPress={item.toggle}
+              >
+                <View style={[styles.menuItemIcone, { backgroundColor: item.actif ? item.bgActif : '#f0f0ee' }]}>
                   <Ionicons name={item.icon} size={13} color={item.actif ? '#fff' : '#888'} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: item.actif && item.couleur === '#111' ? '#fff' : item.actif ? item.couleur : theme.text, fontSize: t(13), fontWeight: item.actif ? '500' : '400' }}>
-                    {item.label}
-                  </Text>
-                  <Text style={{ color: item.actif && item.couleur === '#111' ? 'rgba(255,255,255,0.6)' : theme.text3, fontSize: t(11) }}>
-                    {item.desc}
-                  </Text>
+                  <Text style={{ color: item.actif && item.key === 'comm' ? '#fff' : '#111', fontSize: t(13), fontWeight: item.actif ? '500' : '400' }}>{item.label}</Text>
+                  <Text style={{ color: item.actif && item.key === 'comm' ? 'rgba(255,255,255,0.5)' : '#aaa', fontSize: t(11) }}>{item.desc} événements</Text>
                 </View>
-                <View style={[styles.checkbox, { backgroundColor: item.actif ? item.couleur : 'transparent', borderColor: item.actif ? item.couleur : theme.border }]}>
-                  {item.actif && <Ionicons name="checkmark" size={11} color="#fff" />}
+                <View style={[styles.checkbox, { backgroundColor: item.actif ? (item.key === 'comm' ? '#fff' : item.bgActif) : 'transparent', borderColor: item.actif ? (item.key === 'comm' ? '#fff' : item.bgActif) : '#ddd' }]}>
+                  {item.actif && <Ionicons name="checkmark" size={11} color={item.key === 'comm' ? '#111' : '#fff'} />}
                 </View>
               </TouchableOpacity>
             ))}
 
-            {afficherLieux && (
-              <>
-                <View style={[styles.sep, { backgroundColor: theme.border, marginLeft: 40 }]} />
-                <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10), paddingLeft: 16 }]}>
-                  TYPES DE LIEUX{!zoomSuffisant ? ' · zoome pour voir' : ''}
-                </Text>
-                <View style={styles.catGrilleLieux}>
-                  {Object.entries(LIEUX_CATEGORIES).map(([nom, config]) => {
-                    const nb = compterLieuxParCategorie(nom);
-                    if (nb === 0) return null;
-                    const actif = lieuxCategoriesActives.includes(nom);
-                    return (
-                      <TouchableOpacity key={nom}
-                        style={[styles.lieuCatItem, { backgroundColor: actif ? config.couleur : theme.card, borderColor: actif ? config.couleur : theme.border }]}
-                        onPress={() => toggleLieuCategorie(nom)}>
-                        <Ionicons name={config.icone} size={14} color={actif ? '#fff' : config.couleur} />
-                        <Text style={{ color: actif ? '#fff' : theme.text, fontSize: t(10), fontWeight: actif ? '500' : '400', marginTop: 3, textAlign: 'center' }} numberOfLines={2}>
-                          {nom}
-                        </Text>
-                        <Text style={{ color: actif ? 'rgba(255,255,255,0.7)' : theme.text3, fontSize: t(9) }}>({nb})</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </>
-            )}
-
-            <View style={[styles.sep, { backgroundColor: theme.border }]} />
-            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>DATE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingHorizontal: 8, paddingBottom: 8 }}>
+            <View style={styles.menuSep} />
+            <Text style={styles.menuSection}>DATE</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 8, paddingBottom: 8 }}>
               {FILTRES_DATE.map(fd => {
                 const actif = filtreDate === fd.key;
                 return (
-                  <TouchableOpacity key={fd.key}
-                    style={[styles.chip, { backgroundColor: actif ? '#111' : theme.bg, borderColor: actif ? '#111' : theme.border }]}
-                    onPress={() => { setFiltreDate(fd.key); if (fd.key === 'date_precise') setShowDatePicker(true); }}>
-                    <Ionicons name={fd.icon} size={12} color={actif ? '#fff' : theme.text3} />
-                    <Text style={{ color: actif ? '#fff' : theme.text3, fontSize: t(11), fontWeight: actif ? '500' : '400' }}>
+                  <TouchableOpacity
+                    key={fd.key}
+                    style={[styles.dateChip, actif && { backgroundColor: '#111' }]}
+                    onPress={() => { setFiltreDate(fd.key); if (fd.key === 'date_precise') setShowDatePicker(true); }}
+                  >
+                    <Ionicons name={fd.icon} size={12} color={actif ? '#fff' : '#aaa'} />
+                    <Text style={{ color: actif ? '#fff' : '#666', fontSize: t(11), fontWeight: actif ? '600' : '400' }}>
                       {fd.key === 'date_precise' && filtreDate === 'date_precise'
                         ? datePrecise.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
                         : fd.label}
@@ -783,62 +642,48 @@ export default function CarteScreen({ navigation }) {
                 onChange={(e, d) => { setShowDatePicker(false); if (d) { setDatePrecise(d); setFiltreDate('date_precise'); } }} />
             )}
 
-            <View style={[styles.sep, { backgroundColor: theme.border }]} />
-            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>CATÉGORIES</Text>
-            <TouchableOpacity
-              style={[styles.menuItem, filtresCategories.length === 0 && { backgroundColor: '#F5F5F5' }]}
-              onPress={() => setFiltresCategories([])}>
-              <View style={[styles.menuIcone, { backgroundColor: '#111' }]}>
-                <Ionicons name="apps-outline" size={13} color="#fff" />
-              </View>
-              <Text style={[styles.menuLabel, { color: theme.text, fontSize: t(13) }]}>Toutes</Text>
-              {filtresCategories.length === 0 && <Ionicons name="checkmark" size={15} color="#2563EB" />}
-            </TouchableOpacity>
-            <View style={styles.catGrille}>
+            <View style={styles.menuSep} />
+            <Text style={styles.menuSection}>CATÉGORIES</Text>
+            <View style={styles.catsGrid}>
+              <TouchableOpacity
+                style={[styles.catItem, filtresCategories.length === 0 && { backgroundColor: '#111' }]}
+                onPress={() => setFiltresCategories([])}
+              >
+                <Ionicons name="apps-outline" size={16} color={filtresCategories.length === 0 ? '#fff' : '#aaa'} />
+                <Text style={{ color: filtresCategories.length === 0 ? '#fff' : '#888', fontSize: t(10), marginTop: 4, textAlign: 'center' }}>Toutes</Text>
+              </TouchableOpacity>
               {Object.entries(CATEGORIES).map(([nom, c]) => {
                 const actif = filtresCategories.includes(nom);
                 return (
-                  <TouchableOpacity key={nom}
-                    style={[styles.catItem, { backgroundColor: actif ? c.forte : theme.card, borderColor: actif ? c.forte : theme.border }]}
-                    onPress={() => setFiltresCategories(prev => prev.includes(nom) ? prev.filter(x => x !== nom) : [...prev, nom])}>
+                  <TouchableOpacity
+                    key={nom}
+                    style={[styles.catItem, actif && { backgroundColor: c.forte }]}
+                    onPress={() => setFiltresCategories(prev => prev.includes(nom) ? prev.filter(x => x !== nom) : [...prev, nom])}
+                  >
                     <Ionicons name={c.icone} size={16} color={actif ? '#fff' : c.forte} />
-                    <Text style={{ color: actif ? '#fff' : theme.text, fontSize: t(10), fontWeight: actif ? '500' : '400', marginTop: 4, textAlign: 'center' }} numberOfLines={1}>
-                      {nom}
-                    </Text>
+                    <Text style={{ color: actif ? '#fff' : '#888', fontSize: t(10), marginTop: 4, textAlign: 'center' }} numberOfLines={1}>{nom}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
 
-            <View style={[styles.sep, { backgroundColor: theme.border }]} />
-            <Text style={[styles.menuSection, { color: theme.text3, fontSize: t(10) }]}>RAYON</Text>
-            {!positionUser && (
-              <View style={[styles.avertissement, { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons name="location-outline" size={12} color="#92400E" />
-                <Text style={{ color: '#92400E', fontSize: t(11), flex: 1 }}>Active la localisation</Text>
-              </View>
-            )}
-            <TouchableOpacity style={[styles.menuItem, !rayon && { backgroundColor: '#F5F5F5' }]} onPress={() => setRayon(null)}>
-              <View style={[styles.menuIcone, { backgroundColor: '#F5F5F5' }]}>
-                <Ionicons name="globe-outline" size={13} color="#111" />
-              </View>
-              <Text style={[styles.menuLabel, { color: theme.text, fontSize: t(13) }]}>Tout afficher</Text>
-              {!rayon && <Ionicons name="checkmark" size={15} color="#2563EB" />}
+            <View style={styles.menuSep} />
+            <Text style={styles.menuSection}>RAYON</Text>
+            <TouchableOpacity style={[styles.menuItem, !rayon && { backgroundColor: '#f5f5f3' }]} onPress={() => setRayon(null)}>
+              <View style={[styles.menuItemIcone, { backgroundColor: '#f0f0ee' }]}><Ionicons name="globe-outline" size={13} color="#888" /></View>
+              <Text style={{ color: '#111', fontSize: t(13), flex: 1 }}>Tout afficher</Text>
+              {!rayon && <Ionicons name="checkmark" size={16} color="#2563EB" />}
             </TouchableOpacity>
             {RAYONS.map(r => (
-              <TouchableOpacity key={r.valeur}
-                style={[styles.menuItem, rayon === r.valeur && { backgroundColor: '#DBEAFE' }]}
-                onPress={() => { setRayon(r.valeur); if (positionUser) chargerLieux(positionUser, Math.max(r.valeur * 2, 50000)); }}>
-                <View style={[styles.menuIcone, { backgroundColor: '#DBEAFE' }]}>
-                  <Ionicons name="radio-button-on-outline" size={13} color="#2563EB" />
-                </View>
-                <Text style={[styles.menuLabel, { color: theme.text, fontSize: t(13) }]}>{r.label}</Text>
-                {rayon === r.valeur && <Ionicons name="checkmark" size={15} color="#2563EB" />}
+              <TouchableOpacity key={r.valeur} style={[styles.menuItem, rayon === r.valeur && { backgroundColor: '#EFF6FF' }]} onPress={() => setRayon(r.valeur)}>
+                <View style={[styles.menuItemIcone, { backgroundColor: '#DBEAFE' }]}><Ionicons name="navigate-outline" size={13} color="#1D4ED8" /></View>
+                <Text style={{ color: '#111', fontSize: t(13), flex: 1 }}>{r.label}</Text>
+                {rayon === r.valeur && <Ionicons name="checkmark" size={16} color="#2563EB" />}
               </TouchableOpacity>
             ))}
 
-            <TouchableOpacity style={[styles.fermerBas, { backgroundColor: '#111' }]} onPress={fermerMenu}>
-              <Ionicons name="chevron-up" size={16} color="#fff" />
+            <TouchableOpacity style={styles.menuFermerBas} onPress={fermerMenu}>
+              <Ionicons name="chevron-up" size={15} color="#fff" />
               <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Fermer</Text>
             </TouchableOpacity>
             <View style={{ height: 8 }} />
@@ -848,51 +693,43 @@ export default function CarteScreen({ navigation }) {
 
       {/* ── Popup événement communautaire ── */}
       {pointSelectionne && catSel && (
-        <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnim }] }]}>
+        <Animated.View style={[styles.popup, { transform: [{ translateY: slideAnim }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
-            <Ionicons name="close" size={18} color={theme.text3} />
+            <Ionicons name="close" size={15} color="#888" />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]}>{pointSelectionne.titre}</Text>
+          <Text style={[styles.popupTitre, { fontSize: t(16) }]}>{pointSelectionne.titre}</Text>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             <View style={[styles.tag, { backgroundColor: catSel.claire }]}>
               <Ionicons name={catSel.icone} size={11} color={catSel.forte} />
               <Text style={{ color: catSel.texte, fontSize: t(11), fontWeight: '500' }}>{pointSelectionne.categorie}</Text>
             </View>
-            <View style={[styles.tag, { backgroundColor: '#111' }]}>
-              <Text style={{ color: '#fff', fontSize: t(9), fontWeight: '500' }}>Communautaire</Text>
-            </View>
-          </View>
-          {pointSelectionne.description && (
-            <Text style={{ color: theme.text2, fontSize: t(13), lineHeight: 19, marginBottom: 8 }} numberOfLines={2}>
-              {pointSelectionne.description}
-            </Text>
-          )}
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12, alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#DCFCE7', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Ionicons name="people-outline" size={13} color="#15803D" />
-              <Text style={{ color: '#15803D', fontSize: t(12) }}>
+            <View style={[styles.tag, { backgroundColor: '#f0f0ee' }]}>
+              <Ionicons name="people-outline" size={11} color="#666" />
+              <Text style={{ color: '#666', fontSize: t(11) }}>
                 {pointSelectionne.sans_max ? String(pointSelectionne.participants || 0) : `${pointSelectionne.participants || 0}/${pointSelectionne.max || '?'}`}
               </Text>
             </View>
             {positionUser && (
-              <Text style={{ color: theme.text3, fontSize: t(11) }}>
-                📍 {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, pointSelectionne.latitude, pointSelectionne.longitude) * 10) / 10} km
-              </Text>
+              <View style={[styles.tag, { backgroundColor: '#f0f0ee' }]}>
+                <Text style={{ color: '#888', fontSize: t(11) }}>
+                  {Math.round(distanceKm(positionUser.latitude, positionUser.longitude, pointSelectionne.latitude, pointSelectionne.longitude) * 10) / 10} km
+                </Text>
+              </View>
             )}
           </View>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: catSel.forte }]}
+          {pointSelectionne.description && (
+            <Text style={{ color: '#666', fontSize: t(13), lineHeight: 19, marginBottom: 10 }} numberOfLines={2}>{pointSelectionne.description}</Text>
+          )}
+          <View style={styles.popupBtns}>
+            <TouchableOpacity style={[styles.popupBtnPrimary, { backgroundColor: catSel.forte }]}
               onPress={() => { fermerToutesPopups(); navigation.navigate('DetailEvenement', { evenement: pointSelectionne }); }}>
-              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Voir le détail</Text>
+              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '600' }}>Voir le détail</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: estFavori(pointSelectionne.id) ? '#FEF3C7' : theme.bg }]}
-              onPress={() => ajouterFavori(pointSelectionne)}>
-              <Ionicons name={estFavori(pointSelectionne.id) ? 'bookmark' : 'bookmark-outline'} size={17}
-                color={estFavori(pointSelectionne.id) ? '#F59E0B' : theme.text} />
+            <TouchableOpacity style={styles.popupBtnIcon} onPress={() => ajouterFavori(pointSelectionne)}>
+              <Ionicons name={estFavori(pointSelectionne.id) ? 'bookmark' : 'bookmark-outline'} size={17} color={estFavori(pointSelectionne.id) ? '#F59E0B' : '#666'} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: theme.bg }]}
-              onPress={() => Share.share({ message: `Luma — ${pointSelectionne.titre}` })}>
-              <Ionicons name="share-outline" size={17} color={theme.text} />
+            <TouchableOpacity style={styles.popupBtnIcon} onPress={() => Share.share({ message: `Luma — ${pointSelectionne.titre}` })}>
+              <Ionicons name="share-outline" size={17} color="#666" />
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -900,64 +737,39 @@ export default function CarteScreen({ navigation }) {
 
       {/* ── Popup événement officiel ── */}
       {officielSelectionne && configOfficiel && (
-        <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnimOfficiel }] }]}>
+        <Animated.View style={[styles.popup, { transform: [{ translateY: slideAnimOfficiel }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
-            <Ionicons name="close" size={18} color={theme.text3} />
+            <Ionicons name="close" size={15} color="#888" />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]} numberOfLines={2}>
-            {officielSelectionne.titre}
-          </Text>
+          <Text style={[styles.popupTitre, { fontSize: t(16) }]} numberOfLines={2}>{officielSelectionne.titre}</Text>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             <View style={[styles.tag, { backgroundColor: configOfficiel.claire }]}>
               <Ionicons name={configOfficiel.icone} size={11} color={configOfficiel.forte} />
               <Text style={{ color: configOfficiel.texte, fontSize: t(11), fontWeight: '500' }}>{officielSelectionne.categorie}</Text>
             </View>
-            {officielSelectionne.gratuit && (
-              <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}>
-                <Text style={{ color: '#15803D', fontSize: t(10), fontWeight: '500' }}>Gratuit</Text>
-              </View>
-            )}
-            {officielSelectionne.prix_min && (
-              <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}>
-                <Text style={{ color: '#92400E', fontSize: t(10) }}>À partir de {officielSelectionne.prix_min}€</Text>
-              </View>
-            )}
+            {officielSelectionne.gratuit && <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}><Text style={{ color: '#15803D', fontSize: t(11), fontWeight: '500' }}>Gratuit</Text></View>}
+            {officielSelectionne.prix_min && <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}><Text style={{ color: '#92400E', fontSize: t(11) }}>Dès {officielSelectionne.prix_min}€</Text></View>}
           </View>
-          {officielSelectionne.salle && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <Ionicons name="business-outline" size={13} color={configOfficiel.forte} />
-              <Text style={{ color: configOfficiel.forte, fontSize: t(13), fontWeight: '500' }}>{officielSelectionne.salle}</Text>
-            </View>
-          )}
           {officielSelectionne.date_debut && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <Ionicons name="calendar-outline" size={13} color={configOfficiel.forte} />
-              <Text style={{ color: configOfficiel.forte, fontSize: t(12), fontWeight: '500' }}>
-                {formatDateParis(officielSelectionne.date_debut)}
-              </Text>
+              <Text style={{ color: configOfficiel.forte, fontSize: t(12), fontWeight: '500' }}>{formatDateParis(officielSelectionne.date_debut)}</Text>
             </View>
           )}
           {officielSelectionne.lieu && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="location-outline" size={13} color={theme.text3} />
-              <Text style={{ color: theme.text2, fontSize: t(12), flex: 1 }} numberOfLines={1}>{officielSelectionne.lieu}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <Ionicons name="location-outline" size={13} color="#aaa" />
+              <Text style={{ color: '#888', fontSize: t(12), flex: 1 }} numberOfLines={1}>{officielSelectionne.lieu}</Text>
             </View>
           )}
-          {positionUser && officielSelectionne.latitude && (
-            <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 10 }}>
-              📍 {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
-                parseFloat(officielSelectionne.latitude), parseFloat(officielSelectionne.longitude)) * 10) / 10} km
-            </Text>
-          )}
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: configOfficiel.forte }]}
+          <View style={styles.popupBtns}>
+            <TouchableOpacity style={[styles.popupBtnPrimary, { backgroundColor: configOfficiel.forte }]}
               onPress={() => { fermerToutesPopups(); navigation.navigate('DetailEvenementOfficiel', { evenement: officielSelectionne }); }}>
-              <Ionicons name="arrow-forward" size={15} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>Voir le détail</Text>
+              <Ionicons name="arrow-forward" size={14} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '600' }}>Voir le détail</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: theme.bg }]}
-              onPress={() => Share.share({ message: `${officielSelectionne.titre}\n${officielSelectionne.url || ''}` })}>
-              <Ionicons name="share-outline" size={17} color={theme.text} />
+            <TouchableOpacity style={styles.popupBtnIcon} onPress={() => Share.share({ message: `${officielSelectionne.titre}\n${officielSelectionne.url || ''}` })}>
+              <Ionicons name="share-outline" size={17} color="#666" />
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -965,46 +777,32 @@ export default function CarteScreen({ navigation }) {
 
       {/* ── Popup lieu ── */}
       {lieuSelectionne && configLieuSel && (
-        <Animated.View style={[styles.popup, { backgroundColor: theme.card, transform: [{ translateY: slideAnimLieu }] }]}>
+        <Animated.View style={[styles.popup, { transform: [{ translateY: slideAnimLieu }] }]}>
           <TouchableOpacity style={styles.popupClose} onPress={fermerToutesPopups}>
-            <Ionicons name="close" size={18} color={theme.text3} />
+            <Ionicons name="close" size={15} color="#888" />
           </TouchableOpacity>
-          <Text style={[styles.popupTitre, { color: theme.text, fontSize: t(16) }]} numberOfLines={2}>
-            {lieuSelectionne.nom}
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            <View style={[styles.tag, { backgroundColor: configLieuSel.bg || '#F5F5F5' }]}>
+          <Text style={[styles.popupTitre, { fontSize: t(16) }]} numberOfLines={2}>{lieuSelectionne.nom}</Text>
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+            <View style={[styles.tag, { backgroundColor: configLieuSel.bg || '#f5f5f5' }]}>
               <Ionicons name={configLieuSel.icone} size={11} color={configLieuSel.couleur} />
-              <Text style={{ color: configLieuSel.couleur, fontSize: t(11), fontWeight: '500' }}>
-                {lieuSelectionne.sous_categorie || lieuSelectionne.categorie}
-              </Text>
+              <Text style={{ color: configLieuSel.couleur, fontSize: t(11), fontWeight: '500' }}>{lieuSelectionne.sous_categorie || lieuSelectionne.categorie}</Text>
             </View>
           </View>
           {lieuSelectionne.adresse && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <Ionicons name="location-outline" size={13} color={theme.text3} />
-              <Text style={{ color: theme.text2, fontSize: t(13), flex: 1 }}>{lieuSelectionne.adresse}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <Ionicons name="location-outline" size={13} color="#aaa" />
+              <Text style={{ color: '#888', fontSize: t(13), flex: 1 }}>{lieuSelectionne.adresse}</Text>
             </View>
           )}
-          {positionUser && lieuSelectionne.latitude && (
-            <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 10 }}>
-              📍 {Math.round(distanceKm(positionUser.latitude, positionUser.longitude,
-                parseFloat(lieuSelectionne.latitude), parseFloat(lieuSelectionne.longitude)) * 10) / 10} km
-            </Text>
-          )}
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: configLieuSel.couleur }]}
+          <View style={styles.popupBtns}>
+            <TouchableOpacity style={[styles.popupBtnPrimary, { backgroundColor: configLieuSel.couleur }]}
               onPress={() => { fermerToutesPopups(); navigation.navigate('DetailLieu', { lieu: lieuSelectionne }); }}>
-              <Ionicons name="grid-outline" size={15} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '500' }}>
-                {lieuSelectionne.sous_categorie === 'Cinéma' ? 'Voir les séances' :
-                 lieuSelectionne.sous_categorie === 'Salle de concert' ? 'Voir la programmation' :
-                 lieuSelectionne.sous_categorie === 'Stade' ? 'Voir le calendrier' : 'Voir la fiche'}
+              <Text style={{ color: '#fff', fontSize: t(13), fontWeight: '600' }}>
+                {lieuSelectionne.sous_categorie === 'Cinéma' ? 'Voir les séances' : 'Voir la fiche'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btnIcon, { backgroundColor: theme.bg }]}
-              onPress={() => navigation.navigate('CreerStory', { lieu: lieuSelectionne })}>
-              <Ionicons name="camera-outline" size={20} color={configLieuSel.couleur} />
+            <TouchableOpacity style={styles.popupBtnIcon} onPress={() => navigation.navigate('CreerStory', { lieu: lieuSelectionne })}>
+              <Ionicons name="camera-outline" size={18} color={configLieuSel.couleur} />
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -1016,17 +814,15 @@ export default function CarteScreen({ navigation }) {
       )}
       {menuFabVisible && (
         <View style={styles.fabMenu}>
-          <TouchableOpacity style={styles.fabMenuItem}
-            onPress={() => { setMenuFabVisible(false); navigation.navigate('CreerStory'); }}>
-            <View style={[styles.fabMenuIcone, { backgroundColor: '#8B5CF6' }]}>
-              <Ionicons name="camera" size={20} color="#fff" />
+          <TouchableOpacity style={styles.fabMenuItem} onPress={() => { setMenuFabVisible(false); navigation.navigate('CreerStory'); }}>
+            <View style={[styles.fabMenuIcone, { backgroundColor: '#7C3AED' }]}>
+              <Ionicons name="camera" size={18} color="#fff" />
             </View>
             <Text style={styles.fabMenuLabel}>Story</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.fabMenuItem}
-            onPress={() => { setMenuFabVisible(false); navigation.navigate('AjoutEvenement'); }}>
+          <TouchableOpacity style={styles.fabMenuItem} onPress={() => { setMenuFabVisible(false); navigation.navigate('AjoutEvenement'); }}>
             <View style={[styles.fabMenuIcone, { backgroundColor: '#111' }]}>
-              <Ionicons name="calendar-outline" size={20} color="#fff" />
+              <Ionicons name="calendar-outline" size={18} color="#fff" />
             </View>
             <Text style={styles.fabMenuLabel}>Événement</Text>
           </TouchableOpacity>
@@ -1036,8 +832,9 @@ export default function CarteScreen({ navigation }) {
       <TouchableOpacity
         style={[styles.fab, menuFabVisible && { backgroundColor: '#EF4444' }]}
         onPress={() => { setMenuFabVisible(v => !v); if (menuOuvert) fermerMenu(); if (showRecherche) setShowRecherche(false); }}
+        activeOpacity={0.85}
       >
-        <Ionicons name={menuFabVisible ? 'close' : 'add'} size={26} color="#fff" />
+        <Ionicons name={menuFabVisible ? 'close' : 'add'} size={24} color="#fff" />
       </TouchableOpacity>
 
       {/* ── Story Viewer ── */}
@@ -1061,55 +858,56 @@ export default function CarteScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   map: { flex: 1 },
-  mRond: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#fff', borderWidth: 2.5, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 4 },
-  mRondSmall: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#fff', borderWidth: 2, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 2, elevation: 3 },
-  mStory: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#fff', borderWidth: 2.5, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 4 },
-  mStoryDot: { position: 'absolute', bottom: 1, right: 1, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: '#fff' },
-  erreurBanner: { position: 'absolute', top: 96, left: 16, right: 16, backgroundColor: '#EF4444', flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 14, gap: 8, zIndex: 5, borderRadius: 12 },
-  erreurBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  filtresActifsWrap: { position: 'absolute', top: 96, left: 0, right: 0, zIndex: 4 },
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1.5 },
+
+  marqueur: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#fff', borderWidth: 2.5, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 4 },
+  marqueurSmall: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#fff', borderWidth: 2, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 3 },
+  marqueurStory: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#fff', borderWidth: 2.5, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 4 },
+  marqueurStoryDot: { position: 'absolute', bottom: 1, right: 1, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: '#fff' },
+
   header: { position: 'absolute', top: 52, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10 },
-  logoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20 },
-  logoIcone: { width: 20, height: 20, borderRadius: 6, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
-  logoTexte: { fontWeight: '500', color: '#111' },
-  filtreCount: { backgroundColor: '#EF4444', borderRadius: 10, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
-  // ✅ Recherche
+  logoPill: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 22, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 4 },
+  logoDot: { width: 22, height: 22, borderRadius: 7, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
+  logoTxt: { fontWeight: '600', color: '#111', letterSpacing: -0.2 },
+  filtreCountBadge: { backgroundColor: '#EF4444', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  headerIconBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.97)', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 },
+
   rechercheContainer: { position: 'absolute', top: 100, left: 16, right: 16, zIndex: 15 },
-  rechercheBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 8 },
-  rechercheInput: { flex: 1, color: '#111', fontSize: 14 },
-  rechercheResultats: { backgroundColor: '#fff', borderRadius: 14, marginTop: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 6, overflow: 'hidden' },
+  rechercheBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 16, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8 },
+  rechercheInput: { flex: 1, color: '#111' },
+  rechercheResultats: { backgroundColor: '#fff', borderRadius: 16, marginTop: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 6, overflow: 'hidden' },
   rechercheItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 },
-  // ✅ Compteur
-  compteur: { position: 'absolute', top: 100, left: 16, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, zIndex: 4 },
-  menu: { position: 'absolute', top: 96, left: 16, width: 285, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 8, maxHeight: 600, zIndex: 9 },
-  menuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 0.5 },
-  menuTitre: { fontWeight: '500' },
-  effacerBtn: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  fermerBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  fermerBas: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, margin: 10, borderRadius: 12, padding: 10 },
-  menuSection: { fontWeight: '700', letterSpacing: 0.06, padding: 8, paddingBottom: 4 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 8, borderRadius: 10, marginHorizontal: 4 },
-  menuIcone: { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
-  menuLabel: { flex: 1 },
+
+  filtresActifsWrap: { position: 'absolute', top: 100, left: 0, right: 0, zIndex: 4 },
+  filtrePill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
+
+  compteur: { position: 'absolute', top: 104, left: 16, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4, zIndex: 4 },
+
+  menu: { position: 'absolute', top: 96, left: 16, width: 285, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 10, maxHeight: 580, zIndex: 9, overflow: 'hidden' },
+  menuTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.06)' },
+  menuTitre: { fontWeight: '600', color: '#111' },
+  menuEffacerBtn: { backgroundColor: '#FEE2E2', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  menuFermerBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
+  menuSection: { fontSize: 11, fontWeight: '700', color: '#aaa', letterSpacing: 0.06, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, marginHorizontal: 6, borderRadius: 12 },
+  menuItemIcone: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  menuSep: { height: 0.5, backgroundColor: 'rgba(0,0,0,0.06)', marginVertical: 6, marginHorizontal: 14 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  avertissement: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 8, marginBottom: 4, marginHorizontal: 4 },
-  sep: { height: 0.5, marginVertical: 6, marginHorizontal: 8 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
-  catGrille: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8 },
-  catItem: { width: '30%', alignItems: 'center', justifyContent: 'center', padding: 10, borderRadius: 12, borderWidth: 1.5, minHeight: 64 },
-  catGrilleLieux: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 8, paddingBottom: 8 },
-  lieuCatItem: { width: '30%', alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 10, borderWidth: 1.5, minHeight: 60 },
-  popup: { position: 'absolute', bottom: 180, left: 12, right: 12, borderRadius: 20, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 8, zIndex: 10 },
-  popupClose: { position: 'absolute', top: 14, right: 14, zIndex: 1 },
-  popupTitre: { fontWeight: '500', marginBottom: 6, paddingRight: 24 },
-  tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
-  btnPrimary: { flex: 1, borderRadius: 12, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  btnIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  fab: { position: 'absolute', bottom: 100, right: 16, width: 52, height: 52, backgroundColor: '#111', borderRadius: 26, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6, zIndex: 10 },
-  fabMenu: { position: 'absolute', bottom: 162, right: 16, gap: 10, zIndex: 20, alignItems: 'flex-end' },
-  fabMenuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5 },
-  fabMenuIcone: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  dateChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: '#f5f5f3' },
+  catsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8 },
+  catItem: { width: '28%', alignItems: 'center', justifyContent: 'center', padding: 10, borderRadius: 14, backgroundColor: '#f5f5f3', minHeight: 62 },
+  menuFermerBas: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#111', borderRadius: 14, margin: 10, padding: 11 },
+
+  popup: { position: 'absolute', bottom: 180, left: 12, right: 12, backgroundColor: '#fff', borderRadius: 24, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.06, shadowRadius: 16, elevation: 8, zIndex: 10 },
+  popupClose: { position: 'absolute', top: 14, right: 14, width: 26, height: 26, borderRadius: 13, backgroundColor: '#f0f0ee', alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  popupTitre: { fontWeight: '600', color: '#111', marginBottom: 8, paddingRight: 32, letterSpacing: -0.2 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 4 },
+  popupBtns: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  popupBtnPrimary: { flex: 1, borderRadius: 13, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 5 },
+  popupBtnIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: '#f5f5f3', alignItems: 'center', justifyContent: 'center' },
+
+  fab: { position: 'absolute', bottom: 100, right: 16, width: 50, height: 50, backgroundColor: '#111', borderRadius: 25, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6, zIndex: 10 },
+  fabMenu: { position: 'absolute', bottom: 160, right: 16, gap: 10, zIndex: 20, alignItems: 'flex-end' },
+  fabMenuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
+  fabMenuIcone: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   fabMenuLabel: { fontSize: 14, fontWeight: '600', color: '#111' },
 });

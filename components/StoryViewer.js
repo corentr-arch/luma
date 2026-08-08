@@ -3,6 +3,7 @@ import {
   Animated, TextInput, KeyboardAvoidingView, Platform,
   StatusBar, SafeAreaView, Alert,
 } from 'react-native';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabase';
@@ -23,13 +24,24 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
   const [liked, setLiked] = useState(false);
   const [nbLikes, setNbLikes] = useState(0);
   const [auteurProfils, setAuteurProfils] = useState({});
+  const [dureVideo, setDureVideo] = useState(DUREE_IMAGE);
   const progression = useRef(new Animated.Value(0)).current;
   const animRef = useRef(null);
   const tapDebut = useRef(0);
 
   const story = stories?.[index];
+  const estVideo = story?.media_type === 'video';
   const estMonStory = profil?.id && story?.user_id === profil.id;
   const auteur = story ? (auteurProfils[story.user_id] || null) : null;
+
+  // ✅ Video player
+  const videoPlayer = useVideoPlayer(estVideo ? story.media_url : null, (player) => {
+    if (player) {
+      player.loop = false;
+      player.muted = false;
+      player.play();
+    }
+  });
 
   useEffect(() => {
     const userIds = [...new Set(storiesInitiales.map(s => s.user_id))];
@@ -49,13 +61,51 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     setLiked(false);
     setNbLikes(story.nb_likes || 0);
     marquerVue();
-    demarrerProgression();
-    return () => stopProgression();
+
+    if (estVideo) {
+      // Pour la vidéo on démarre la progression après avoir la durée
+      videoPlayer?.play();
+    } else {
+      demarrerProgression(DUREE_IMAGE);
+    }
+
+    return () => {
+      stopProgression();
+      if (estVideo) videoPlayer?.pause();
+    };
   }, [index]);
 
+  // ✅ Écoute la fin de la vidéo
   useEffect(() => {
-    if (pause) stopProgression();
-    else if (story) demarrerProgression();
+    if (!estVideo || !videoPlayer) return;
+
+    const sub = videoPlayer.addListener('playToEnd', () => {
+      suivante();
+    });
+
+    const statusSub = videoPlayer.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay' && videoPlayer.duration) {
+        const duree = videoPlayer.duration * 1000;
+        setDureVideo(duree);
+        demarrerProgression(duree);
+      }
+    });
+
+    return () => {
+      sub?.remove();
+      statusSub?.remove();
+    };
+  }, [estVideo, videoPlayer, index]);
+
+  useEffect(() => {
+    if (pause) {
+      stopProgression();
+      if (estVideo) videoPlayer?.pause();
+    } else if (story) {
+      if (estVideo) videoPlayer?.play();
+      // Ne redémarre pas la progression pour la vidéo — elle est gérée par le player
+      else demarrerProgression(DUREE_IMAGE);
+    }
   }, [pause]);
 
   const marquerVue = async () => {
@@ -69,15 +119,14 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     } catch {}
   };
 
-  const demarrerProgression = () => {
-    if (!story) return;
+  const demarrerProgression = (duree = DUREE_IMAGE) => {
     progression.setValue(0);
     animRef.current = Animated.timing(progression, {
       toValue: 1,
-      duration: DUREE_IMAGE,
+      duration: duree,
       useNativeDriver: false,
     });
-    animRef.current.start(({ finished }) => { if (finished) suivante(); });
+    animRef.current.start(({ finished }) => { if (finished && !estVideo) suivante(); });
   };
 
   const stopProgression = () => animRef.current?.stop();
@@ -91,7 +140,6 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     if (index > 0) setIndex(i => i - 1);
   }, [index]);
 
-  // ✅ Toggle like avec haptic
   const toggleLike = async () => {
     if (!profil || !story) return;
     await haptiqueLeger();
@@ -112,45 +160,23 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
       'Supprimer cette story ?',
       'Elle sera supprimée définitivement.',
       [
-        { text: 'Annuler', style: 'cancel', onPress: () => { setPause(false); demarrerProgression(); } },
+        { text: 'Annuler', style: 'cancel', onPress: () => { setPause(false); } },
         {
-          text: 'Supprimer',
-          style: 'destructive',
+          text: 'Supprimer', style: 'destructive',
           onPress: async () => {
             try {
               stopProgression();
               const urlParts = story.media_url.split('/storage/v1/object/public/stories/');
               const cheminFichier = urlParts[1];
-
-              const { error: dbError } = await supabase
-                .from('stories')
-                .update({ actif: false })
-                .eq('id', story.id);
-
-              if (dbError) {
-                Alert.alert('Erreur', 'Impossible de supprimer la story');
-                setPause(false);
-                demarrerProgression();
-                return;
-              }
-
-              if (cheminFichier) {
-                await supabase.storage.from('stories').remove([cheminFichier]);
-              }
-
+              await supabase.from('stories').update({ actif: false }).eq('id', story.id);
+              if (cheminFichier) await supabase.storage.from('stories').remove([cheminFichier]);
               if (onStoryDeleted) onStoryDeleted(story.id);
-
               const newStories = stories.filter(s => s.id !== story.id);
-              if (newStories.length === 0) {
-                onFermer();
-              } else {
-                setStories(newStories);
-                setIndex(Math.min(index, newStories.length - 1));
-              }
+              if (newStories.length === 0) onFermer();
+              else { setStories(newStories); setIndex(Math.min(index, newStories.length - 1)); }
             } catch {
               Alert.alert('Erreur', 'Impossible de supprimer la story');
               setPause(false);
-              demarrerProgression();
             }
           },
         },
@@ -160,14 +186,11 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
 
   const envoyerReponse = async () => {
     if (!reponse.trim() || !profil || !story) return;
-    await supabase.from('stories_reponses').insert({
-      story_id: story.id, user_id: profil.id, texte: reponse.trim(),
-    });
+    await supabase.from('stories_reponses').insert({ story_id: story.id, user_id: profil.id, texte: reponse.trim() });
     await haptiqueSucces();
     setReponse('');
     setShowReponse(false);
     setPause(false);
-    demarrerProgression();
   };
 
   const formatTemps = (dateStr) => {
@@ -193,38 +216,47 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
       if (x < W / 3) precedente(); else suivante();
     } else {
       setPause(false);
-      demarrerProgression();
+      if (!estVideo) demarrerProgression(DUREE_IMAGE);
     }
   };
 
   if (!story) return null;
 
-  const couleurType =
-    story.type === 'spot' ? '#EF4444' :
-    story.type === 'evenement' ? '#2563EB' : '#8B5CF6';
-
-  const labelType =
-    story.type === 'spot' ? '⚡ Spot' :
-    story.type === 'evenement' ? '🎉 Événement' : '📍 Lieu';
+  const couleurType = story.type === 'spot' ? '#EF4444' : story.type === 'evenement' ? '#2563EB' : '#8B5CF6';
+  const labelType = story.type === 'spot' ? '⚡ Spot' : story.type === 'evenement' ? '🎉 Événement' : '📍 Lieu';
 
   return (
     <View style={styles.container}>
       <StatusBar hidden />
 
-      <View
-        style={StyleSheet.absoluteFill}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-      >
-        <Image
-          source={{ uri: story.media_url }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="contain"
-        />
+      {/* ✅ Media — image ou vidéo */}
+      <View style={StyleSheet.absoluteFill} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        {estVideo ? (
+          <VideoView
+            player={videoPlayer}
+            style={StyleSheet.absoluteFill}
+            contentFit="contain"
+            nativeControls={false}
+          />
+        ) : (
+          <Image
+            source={{ uri: story.media_url }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="contain"
+          />
+        )}
       </View>
 
       <View style={styles.gradientHaut} pointerEvents="none" />
       <View style={styles.gradientBas} pointerEvents="none" />
+
+      {/* ✅ Badge vidéo */}
+      {estVideo && (
+        <View style={styles.videoBadge}>
+          <Ionicons name="videocam" size={12} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>Vidéo</Text>
+        </View>
+      )}
 
       <SafeAreaView style={styles.barresWrap} pointerEvents="none">
         <View style={styles.barres}>
@@ -261,9 +293,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                   <>
                     <Text style={styles.tempsTexte}>·</Text>
                     <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
-                    <Text style={[styles.tempsTexte, { flex: 1 }]} numberOfLines={1}>
-                      {story.adresse}
-                    </Text>
+                    <Text style={[styles.tempsTexte, { flex: 1 }]} numberOfLines={1}>{story.adresse}</Text>
                   </>
                 )}
               </View>
@@ -274,16 +304,9 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
           </View>
 
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            {/* ✅ Signaler — seulement si c'est pas ma story */}
             {!estMonStory && (
-              <BoutonSignaler
-                type="story"
-                id={story.id}
-                couleur="rgba(255,255,255,0.7)"
-                taille={18}
-              />
+              <BoutonSignaler type="story" id={story.id} couleur="rgba(255,255,255,0.7)" taille={18} />
             )}
-            {/* ✅ Supprimer — seulement si c'est ma story */}
             {estMonStory && (
               <TouchableOpacity
                 onPress={() => { stopProgression(); setPause(true); supprimerStory(); }}
@@ -293,11 +316,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                 <Ionicons name="trash-outline" size={20} color="#fff" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              onPress={onFermer}
-              style={styles.fermerBtn}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
+            <TouchableOpacity onPress={onFermer} style={styles.fermerBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons name="close" size={26} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -329,7 +348,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
               <Ionicons name="send" size={20} color="#fff" />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => { setShowReponse(false); setPause(false); demarrerProgression(); }}
+              onPress={() => { setShowReponse(false); setPause(false); }}
               style={styles.annulerBtn}
             >
               <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
@@ -346,13 +365,10 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                 <Text style={styles.reponsePillTexte}>Répondre...</Text>
               </TouchableOpacity>
             )}
-
-            {/* ✅ Like avec haptic */}
             <TouchableOpacity onPress={toggleLike} style={styles.actionBtn}>
               <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={liked ? '#EF4444' : '#fff'} />
               {nbLikes > 0 && <Text style={styles.actionCount}>{nbLikes}</Text>}
             </TouchableOpacity>
-
             {story.latitude && story.longitude && onVoirCarte && (
               <TouchableOpacity
                 style={styles.actionBtn}
@@ -361,7 +377,6 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                 <Ionicons name="map" size={24} color="#fff" />
               </TouchableOpacity>
             )}
-
             <View style={styles.actionBtn}>
               <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.6)" />
               <Text style={styles.actionCount}>{story.nb_vues || 0}</Text>
@@ -377,6 +392,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   gradientHaut: { position: 'absolute', top: 0, left: 0, right: 0, height: 220, zIndex: 5, backgroundColor: 'transparent' },
   gradientBas: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 200, zIndex: 5, backgroundColor: 'transparent' },
+  videoBadge: { position: 'absolute', top: 110, right: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4, zIndex: 15 },
   barresWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   barres: { flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingTop: 8 },
   barreContainer: { flex: 1, height: 2.5, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, overflow: 'hidden' },
