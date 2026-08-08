@@ -1,257 +1,156 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Linking, Share, Image,
+  Linking, Share, Image, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useApp } from '../AppContext';
-
-const COULEUR_SALLE  = '#F97316';
-const COULEUR_CINEMA = '#9F1239';
-const COULEUR_THEATRE = '#4F46E5';
-const COULEUR_SPORT  = '#16A34A';
-const COULEUR_GAMING = '#7C3AED';
-
-const TYPE_SPECIAL_CONFIG = {
-  salle:             { couleur: COULEUR_SALLE,   icone: 'musical-notes',   label: 'Salle de concert' },
-  cinema:            { couleur: COULEUR_CINEMA,  icone: 'film',            label: 'Cinéma' },
-  theatre:           { couleur: COULEUR_THEATRE, icone: 'comedy',          label: 'Théâtre' },
-  sport_competition: { couleur: COULEUR_SPORT,   icone: 'trophy',          label: 'Compétition sportive' },
-  gaming:            { couleur: COULEUR_GAMING,  icone: 'game-controller', label: 'Jeux vidéo / Esport' },
-  officiel:          { couleur: '#2563EB',        icone: 'calendar-outline', label: 'Agenda Paris' },
-};
-
-const SOURCE_CONFIG = {
-  que_faire_paris: { label: 'Que faire à Paris', couleur: '#2563EB', bg: '#DBEAFE' },
-  openagenda:      { label: 'OpenAgenda',         couleur: '#F97316', bg: '#FFF7ED' },
-  ticketmaster:    { label: 'Ticketmaster',        couleur: '#EF4444', bg: '#FEE2E2' },
-};
-
-function detecterTypeSpecial(ev) {
-  const titre = (ev.titre || '').toLowerCase();
-  const lieu = (ev.lieu || '').toLowerCase();
-  const desc = (ev.description || '').toLowerCase();
-  const salle = (ev.salle || '').toLowerCase();
-  const cat = (ev.categorie || '').toLowerCase();
-  const tout = titre + ' ' + lieu + ' ' + desc + ' ' + salle;
-  if (ev.source === 'openagenda') return 'salle';
-  if (tout.includes('gaming') || tout.includes('esport') || tout.includes('jeux vidéo') || tout.includes('game')) return 'gaming';
-  if (tout.includes('compétition') || tout.includes('match') || tout.includes('tournoi') || tout.includes('championnat')) return 'sport_competition';
-  if (lieu.includes('cinéma') || lieu.includes('ugc') || lieu.includes('mk2') || lieu.includes('pathé') || lieu.includes('gaumont')) return 'cinema';
-  if (lieu.includes('théâtre') || lieu.includes('comédie') || lieu.includes('odéon')) return 'theatre';
-  return 'officiel';
-}
-
-function formatDateLongue(dateStr) {
-  if (!dateStr) return null;
-  return new Date(dateStr).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
+import { useApp, CATEGORIES, formatDateParis } from '../AppContext';
 
 export default function DetailEvenementOfficiel({ route, navigation }) {
   const { evenement } = route.params;
-  const { theme, facteurTexte, CATEGORIES_COULEURS, CAT_ICONES } = useApp();
-  const t = (size) => size * facteurTexte;
+  const { facteurTexte } = useApp();
+  const t = (s) => s * facteurTexte;
 
-  const typeSpecial = detecterTypeSpecial(evenement);
-  const config = TYPE_SPECIAL_CONFIG[typeSpecial];
-  const couleur = config.couleur;
-  const src = SOURCE_CONFIG[evenement.source] || SOURCE_CONFIG.que_faire_paris;
-  const cat = CATEGORIES_COULEURS[evenement.categorie] || { claire: '#DBEAFE', forte: '#2563EB', texte: '#1E40AF' };
+  const cat = CATEGORIES[evenement?.categorie] || { forte: '#2563EB', claire: '#DBEAFE', texte: '#1E40AF', icone: 'calendar-outline' };
+
+  const ouvrirLien = () => { if (evenement?.url) Linking.openURL(evenement.url); };
+  const partager = () => Share.share({ message: `${evenement?.titre}\n${evenement?.url || ''}` });
+  const ouvrirCarte = () => {
+    if (!evenement?.latitude || !evenement?.longitude) return;
+    const url = Platform.OS === 'ios'
+      ? `maps://?q=${evenement.latitude},${evenement.longitude}`
+      : `geo:${evenement.latitude},${evenement.longitude}`;
+    Linking.openURL(url);
+  };
+
+  if (!evenement) return null;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+    <View style={styles.container}>
+      <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={couleur} />
+          <Ionicons name="chevron-back" size={20} color="#2563EB" />
+          <Text style={{ color: '#2563EB', fontSize: t(16) }}>Retour</Text>
         </TouchableOpacity>
-        <Text style={[styles.headerTitre, { color: theme.text, fontSize: t(16) }]} numberOfLines={1}>
-          {evenement.titre}
-        </Text>
-        <TouchableOpacity
-          style={[styles.shareBtn, { backgroundColor: couleur + '15' }]}
-          onPress={() => Share.share({ message: `${evenement.titre}\n${evenement.url || ''}` })}
-        >
-          <Ionicons name="share-outline" size={18} color={couleur} />
+        <TouchableOpacity onPress={partager} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="share-outline" size={22} color="#111" />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Image */}
-        {evenement.image_url && (
-          <Image
-            source={{ uri: evenement.image_url }}
-            style={styles.image}
-            resizeMode="cover"
-          />
+        {/* Image ou placeholder */}
+        {evenement.image_url ? (
+          <Image source={{ uri: evenement.image_url }} style={styles.image} resizeMode="cover" />
+        ) : (
+          <View style={[styles.imagePlaceholder, { backgroundColor: cat.claire }]}>
+            <Ionicons name={cat.icone?.replace('-outline', '') || 'calendar'} size={52} color={cat.forte} />
+          </View>
         )}
 
-        {/* Bandeau type */}
-        <View style={[styles.typeBandeau, { backgroundColor: couleur }]}>
-          <Ionicons name={config.icone} size={14} color="#fff" />
-          <Text style={{ color: '#fff', fontSize: t(12), fontWeight: '600', letterSpacing: 0.5 }}>
-            {config.label.toUpperCase()}
-          </Text>
-          <View style={{ flex: 1 }} />
-          <View style={[styles.sourceBadge, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-            <Text style={{ color: '#fff', fontSize: t(10), fontWeight: '500' }}>{src.label}</Text>
-          </View>
-        </View>
-
-        <View style={styles.content}>
-
-          {/* Titre */}
-          <Text style={[styles.titre, { color: theme.text, fontSize: t(22) }]}>
-            {evenement.titre}
-          </Text>
-
-          {/* Badges */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-            <View style={[styles.badge, { backgroundColor: cat.claire }]}>
-              <Ionicons name={CAT_ICONES[evenement.categorie] || 'apps-outline'} size={13} color={cat.forte} />
-              <Text style={{ color: cat.forte, fontSize: t(12), fontWeight: '500' }}>{evenement.categorie}</Text>
+        <View style={styles.body}>
+          {/* Tags */}
+          <View style={styles.tagsRow}>
+            <View style={[styles.tag, { backgroundColor: cat.claire }]}>
+              <Ionicons name={cat.icone} size={12} color={cat.forte} />
+              <Text style={{ color: cat.texte, fontSize: t(12), fontWeight: '500' }}>{evenement.categorie}</Text>
             </View>
             {evenement.gratuit && (
-              <View style={[styles.badge, { backgroundColor: '#DCFCE7' }]}>
-                <Ionicons name="checkmark-circle-outline" size={13} color="#22C55E" />
+              <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="ticket-outline" size={12} color="#15803D" />
                 <Text style={{ color: '#15803D', fontSize: t(12), fontWeight: '500' }}>Gratuit</Text>
               </View>
             )}
             {evenement.prix_min && (
-              <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons name="ticket-outline" size={13} color="#F59E0B" />
-                <Text style={{ color: '#92400E', fontSize: t(12) }}>À partir de {evenement.prix_min}€</Text>
+              <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={{ color: '#92400E', fontSize: t(12) }}>Dès {evenement.prix_min}€</Text>
               </View>
             )}
           </View>
 
-          {/* Infos clés */}
-          <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          {/* Titre */}
+          <Text style={[styles.titre, { fontSize: t(24) }]}>{evenement.titre}</Text>
 
+          {/* Infos */}
+          <View style={styles.infosCard}>
             {evenement.date_debut && (
-              <View style={styles.infoLigne}>
-                <View style={[styles.infoIcone, { backgroundColor: couleur + '15' }]}>
-                  <Ionicons name="calendar-outline" size={16} color={couleur} />
+              <View style={styles.infoRow}>
+                <View style={[styles.infoIcone, { backgroundColor: cat.claire }]}>
+                  <Ionicons name="calendar-outline" size={16} color={cat.forte} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 2 }}>Date de début</Text>
-                  <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500' }}>
-                    {formatDateLongue(evenement.date_debut)}
-                  </Text>
+                  <Text style={[styles.infoLabel, { fontSize: t(11) }]}>DATE</Text>
+                  <Text style={[styles.infoVal, { fontSize: t(14) }]}>{formatDateParis(evenement.date_debut)}</Text>
+                  {evenement.date_fin && <Text style={[styles.infoSub, { fontSize: t(12) }]}>→ {formatDateParis(evenement.date_fin)}</Text>}
                 </View>
               </View>
             )}
 
-            {evenement.date_fin && evenement.date_fin !== evenement.date_debut && (
-              <>
-                <View style={[styles.infoSep, { backgroundColor: theme.border }]} />
-                <View style={styles.infoLigne}>
-                  <View style={[styles.infoIcone, { backgroundColor: '#F5F5F5' }]}>
-                    <Ionicons name="flag-outline" size={16} color={theme.text3} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 2 }}>Date de fin</Text>
-                    <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500' }}>
-                      {formatDateLongue(evenement.date_fin)}
-                    </Text>
-                  </View>
+            {(evenement.salle || evenement.lieu) && (
+              <View style={[styles.infoRow, { borderTopWidth: 0.5, borderTopColor: 'rgba(0,0,0,0.05)', marginTop: 12, paddingTop: 12 }]}>
+                <View style={[styles.infoIcone, { backgroundColor: '#f0f0ee' }]}>
+                  <Ionicons name="business-outline" size={16} color="#666" />
                 </View>
-              </>
-            )}
-
-            {evenement.lieu && (
-              <>
-                <View style={[styles.infoSep, { backgroundColor: theme.border }]} />
-                <View style={styles.infoLigne}>
-                  <View style={[styles.infoIcone, { backgroundColor: '#F5F5F5' }]}>
-                    <Ionicons name="location-outline" size={16} color={theme.text3} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 2 }}>Lieu</Text>
-                    <Text style={{ color: theme.text, fontSize: t(14), fontWeight: '500' }}>{evenement.lieu}</Text>
-                    {evenement.adresse && (
-                      <Text style={{ color: theme.text3, fontSize: t(12), marginTop: 2 }}>{evenement.adresse}</Text>
-                    )}
-                  </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.infoLabel, { fontSize: t(11) }]}>LIEU</Text>
+                  <Text style={[styles.infoVal, { fontSize: t(14) }]}>{evenement.salle || evenement.lieu}</Text>
+                  {evenement.adresse && <Text style={[styles.infoSub, { fontSize: t(12) }]}>{evenement.adresse}</Text>}
                 </View>
-              </>
-            )}
-
-            {evenement.salle && evenement.salle !== evenement.lieu && (
-              <>
-                <View style={[styles.infoSep, { backgroundColor: theme.border }]} />
-                <View style={styles.infoLigne}>
-                  <View style={[styles.infoIcone, { backgroundColor: couleur + '15' }]}>
-                    <Ionicons name={config.icone} size={16} color={couleur} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 2 }}>Salle</Text>
-                    <Text style={{ color: couleur, fontSize: t(14), fontWeight: '500' }}>{evenement.salle}</Text>
-                  </View>
-                </View>
-              </>
+                {evenement.latitude && evenement.longitude && (
+                  <TouchableOpacity onPress={ouvrirCarte} style={[styles.mapBtn, { backgroundColor: cat.claire }]}>
+                    <Ionicons name="map" size={14} color={cat.forte} />
+                    <Text style={{ color: cat.forte, fontSize: t(11), fontWeight: '500' }}>Carte</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             )}
 
             {evenement.organisateur && (
-              <>
-                <View style={[styles.infoSep, { backgroundColor: theme.border }]} />
-                <View style={styles.infoLigne}>
-                  <View style={[styles.infoIcone, { backgroundColor: '#F5F5F5' }]}>
-                    <Ionicons name="people-outline" size={16} color={theme.text3} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text3, fontSize: t(11), marginBottom: 2 }}>Organisateur</Text>
-                    <Text style={{ color: theme.text, fontSize: t(14) }}>{evenement.organisateur}</Text>
-                  </View>
+              <View style={[styles.infoRow, { borderTopWidth: 0.5, borderTopColor: 'rgba(0,0,0,0.05)', marginTop: 12, paddingTop: 12 }]}>
+                <View style={[styles.infoIcone, { backgroundColor: '#f0f0ee' }]}>
+                  <Ionicons name="person-outline" size={16} color="#666" />
                 </View>
-              </>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.infoLabel, { fontSize: t(11) }]}>ORGANISATEUR</Text>
+                  <Text style={[styles.infoVal, { fontSize: t(14) }]}>{evenement.organisateur}</Text>
+                </View>
+              </View>
             )}
           </View>
 
           {/* Description */}
           {evenement.description && (
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ color: theme.text, fontSize: t(16), fontWeight: '500', marginBottom: 8 }}>
-                À propos
-              </Text>
-              <Text style={{ color: theme.text2, fontSize: t(14), lineHeight: 22 }}>
-                {evenement.description}
-              </Text>
+            <View style={styles.descCard}>
+              <Text style={[styles.descTitre, { fontSize: t(13) }]}>À PROPOS</Text>
+              <Text style={[styles.desc, { fontSize: t(14) }]}>{evenement.description}</Text>
             </View>
           )}
 
-          {/* Bouton principal */}
+          {/* Bouton billetterie */}
           {evenement.url && (
-            <TouchableOpacity
-              style={[styles.btnUrl, { backgroundColor: couleur }]}
-              onPress={() => Linking.openURL(evenement.url)}
-            >
-              <Ionicons name="globe-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(15), fontWeight: '500' }}>
-                Voir sur {src.label}
+            <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: cat.forte }]} onPress={ouvrirLien} activeOpacity={0.85}>
+              <Ionicons name="ticket-outline" size={18} color="#fff" />
+              <Text style={[styles.btnPrimaryTxt, { fontSize: t(15) }]}>
+                {evenement.gratuit ? 'Voir l\'événement' : 'Réserver'}
               </Text>
               <Ionicons name="arrow-forward" size={16} color="#fff" />
             </TouchableOpacity>
           )}
 
-          {/* Actions secondaires */}
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-            <TouchableOpacity
-              style={[styles.btnSecondaire, { backgroundColor: theme.card, borderColor: theme.border, flex: 1 }]}
-              onPress={() => Share.share({ message: `${evenement.titre}\n${evenement.lieu || ''}\n${evenement.url || ''}` })}
-            >
-              <Ionicons name="share-social-outline" size={17} color={theme.text} />
-              <Text style={{ color: theme.text, fontSize: t(13), fontWeight: '500' }}>Partager</Text>
+          {/* Boutons secondaires */}
+          <View style={styles.btnsSecondaires}>
+            {evenement.latitude && evenement.longitude && (
+              <TouchableOpacity style={styles.btnSec} onPress={ouvrirCarte} activeOpacity={0.8}>
+                <Ionicons name="map-outline" size={18} color="#111" />
+                <Text style={[styles.btnSecTxt, { fontSize: t(13) }]}>Itinéraire</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.btnSec} onPress={partager} activeOpacity={0.8}>
+              <Ionicons name="share-outline" size={18} color="#111" />
+              <Text style={[styles.btnSecTxt, { fontSize: t(13) }]}>Partager</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnSecondaire, { backgroundColor: theme.card, borderColor: theme.border, flex: 1 }]}
-              onPress={() => navigation.navigate('Carte')}
-            >
-              <Ionicons name="map-outline" size={17} color="#2563EB" />
-              <Text style={{ color: '#2563EB', fontSize: t(13), fontWeight: '500' }}>Voir sur la carte</Text>
+            <TouchableOpacity style={styles.btnSec} onPress={() => navigation.navigate('CreerStory', { evenement })} activeOpacity={0.8}>
+              <Ionicons name="camera-outline" size={18} color="#111" />
+              <Text style={[styles.btnSecTxt, { fontSize: t(13) }]}>Story</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -261,22 +160,28 @@ export default function DetailEvenementOfficiel({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, paddingTop: 56, borderBottomWidth: 0.5 },
-  backBtn: { width: 32 },
-  headerTitre: { flex: 1, fontWeight: '500' },
-  shareBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingBottom: 40 },
-  image: { width: '100%', height: 220 },
-  typeBandeau: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, paddingHorizontal: 16 },
-  sourceBadge: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
-  content: { padding: 16 },
-  titre: { fontWeight: '500', marginBottom: 12, lineHeight: 30 },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  infoCard: { borderRadius: 16, borderWidth: 0.5, padding: 4, marginBottom: 16 },
-  infoLigne: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 12 },
+  container: { flex: 1, backgroundColor: '#fafaf8' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 54 : 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, backgroundColor: 'rgba(250,250,248,0.95)' },
+  backBtn: { flexDirection: 'row', alignItems: 'center' },
+  image: { width: '100%', height: 260, marginTop: Platform.OS === 'ios' ? 96 : 60 },
+  imagePlaceholder: { width: '100%', height: 220, marginTop: Platform.OS === 'ios' ? 96 : 60, alignItems: 'center', justifyContent: 'center' },
+  body: { padding: 20 },
+  tagsRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', marginBottom: 12 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  titre: { fontWeight: '700', color: '#111', letterSpacing: -0.5, marginBottom: 16, lineHeight: 30 },
+  infosCard: { backgroundColor: '#fff', borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   infoIcone: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  infoSep: { height: 0.5, marginHorizontal: 12 },
-  btnUrl: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, padding: 15, marginBottom: 0 },
-  btnSecondaire: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, padding: 12, borderWidth: 0.5 },
+  infoLabel: { fontWeight: '700', color: '#aaa', letterSpacing: 0.06, marginBottom: 3 },
+  infoVal: { fontWeight: '500', color: '#111' },
+  infoSub: { color: '#aaa', marginTop: 2 },
+  mapBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  descCard: { backgroundColor: '#fff', borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
+  descTitre: { fontWeight: '700', color: '#aaa', letterSpacing: 0.06, marginBottom: 8 },
+  desc: { color: '#555', lineHeight: 22 },
+  btnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 16, padding: 16, marginBottom: 12 },
+  btnPrimaryTxt: { color: '#fff', fontWeight: '700' },
+  btnsSecondaires: { flexDirection: 'row', gap: 10 },
+  btnSec: { flex: 1, flexDirection: 'column', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
+  btnSecTxt: { color: '#111', fontWeight: '500' },
 });
