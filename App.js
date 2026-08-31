@@ -237,12 +237,9 @@ function Navigation() {
   return (
     <NavigationContainer
       ref={navigationRef}
-      storageKey="luma-nav-v3"
+      storageKey="luma-nav-v4"
     >
-      <Stack.Navigator
-        screenOptions={{ headerShown: false }}
-        initialRouteName="Main"
-      >
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!session ? (
           <Stack.Screen name="Connexion" component={ConnexionScreen} />
         ) : !onboardingVu ? (
