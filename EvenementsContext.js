@@ -5,8 +5,9 @@ import { supabase } from './supabase';
 
 const EvenementsContext = createContext();
 
-const CACHE_KEY = 'luma_evenements_v2';
-const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+const CACHE_KEY = 'luma_evenements_v3';
+const CACHE_TTL = 3 * 60 * 1000;
+const ANTI_SPAM = 30 * 1000;
 
 export function EvenementsProvider({ children }) {
   const [evenements, setEvenements] = useState([]);
@@ -14,8 +15,8 @@ export function EvenementsProvider({ children }) {
   const [erreurReseau, setErreurReseau] = useState(false);
   const dernierChargement = useRef(0);
   const appState = useRef(AppState.currentState);
+  const channelRef = useRef(null);
 
-  // Charge depuis le cache d'abord
   const chargerDepuisCache = async () => {
     try {
       const json = await AsyncStorage.getItem(CACHE_KEY);
@@ -33,22 +34,16 @@ export function EvenementsProvider({ children }) {
 
   const sauvegarderCache = async (data) => {
     try {
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({
-        data,
-        timestamp: Date.now(),
-      }));
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
     } catch {}
   };
 
   const chargerEvenements = useCallback(async (forceRefresh = false) => {
-    // Anti-spam — pas de rechargement si < 30s
     const maintenant = Date.now();
-    if (!forceRefresh && maintenant - dernierChargement.current < 30000) return;
+    if (!forceRefresh && maintenant - dernierChargement.current < ANTI_SPAM) return;
 
-    // Charge le cache en premier pour affichage instantané
     const cacheValide = await chargerDepuisCache();
     if (cacheValide && !forceRefresh) {
-      // Cache valide — charge quand même en arrière-plan
       chargerDepuisReseau(false);
       return;
     }
@@ -76,8 +71,10 @@ export function EvenementsProvider({ children }) {
       if (error) throw error;
 
       if (data) {
-        setEvenements(data);
-        await sauvegarderCache(data);
+        // Filtre les doublons par id
+        const uniques = [...new Map(data.map(e => [e.id, e])).values()];
+        setEvenements(uniques);
+        await sauvegarderCache(uniques);
         setErreurReseau(false);
         dernierChargement.current = Date.now();
       }
@@ -91,26 +88,20 @@ export function EvenementsProvider({ children }) {
   useEffect(() => {
     chargerEvenements();
 
-    // Recharge quand l'app revient au premier plan
-    const sub = AppState.addEventListener('change', (nextState) => {
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
         chargerEvenements();
       }
       appState.current = nextState;
     });
 
-    // Temps réel — écoute les nouveaux événements
-    const channel = supabase
-      .channel('evenements_live')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'evenements',
-      }, (payload) => {
-        if (payload.eventType === 'INSERT') {
+    // Temps réel
+    channelRef.current = supabase
+      .channel('evenements_live_v2')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'evenements' }, (payload) => {
+        if (payload.eventType === 'INSERT' && !payload.new.suspendu) {
           setEvenements(prev => {
-            const existe = prev.find(e => e.id === payload.new.id);
-            if (existe) return prev;
+            if (prev.find(e => e.id === payload.new.id)) return prev;
             return [...prev, payload.new].sort((a, b) => {
               if (!a.date_evenement) return 1;
               if (!b.date_evenement) return -1;
@@ -130,8 +121,8 @@ export function EvenementsProvider({ children }) {
       .subscribe();
 
     return () => {
-      sub.remove();
-      supabase.removeChannel(channel);
+      appStateSub.remove();
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
   }, []);
 

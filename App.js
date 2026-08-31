@@ -4,7 +4,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, ActivityIndicator, LogBox, Platform } from 'react-native';
-
 import { supabase } from './supabase';
 import { EvenementsProvider } from './EvenementsContext';
 import { AppProvider, useApp } from './AppContext';
@@ -32,41 +31,36 @@ LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
   '`expo-notifications` functionality is not fully supported',
   'Notifications.getExpoPushTokenAsync',
+  'The <CameraView> component does not support children',
 ]);
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const ONGLETS = [
-  { name: 'Carte',    label: 'Carte',     icone: 'map',          iconeOff: 'map-outline' },
-  { name: 'Explorer', label: 'Explorer',  icone: 'search',       iconeOff: 'search-outline' },
-  { name: 'Messages', label: 'Messages',  icone: 'chatbubbles',  iconeOff: 'chatbubbles-outline' },
-  { name: 'Réglages', label: 'Profil',    icone: 'person',       iconeOff: 'person-outline' },
+  { name: 'Carte',    label: 'Carte',    icone: 'map',           iconeOff: 'map-outline' },
+  { name: 'Explorer', label: 'Explorer', icone: 'compass',       iconeOff: 'compass-outline' },
+  { name: 'Messages', label: 'Messages', icone: 'chatbubble',    iconeOff: 'chatbubble-outline' },
+  { name: 'Reglages', label: 'Profil',   icone: 'person-circle', iconeOff: 'person-circle-outline' },
 ];
 
-function IconeOnglet({ name, focused, couleurActif, totalNonLus }) {
+function IconeOnglet({ name, focused, totalNonLus }) {
   const onglet = ONGLETS.find(o => o.name === name);
   if (!onglet) return null;
-
-  const couleur = focused ? couleurActif : '#9CA3AF';
+  const couleur = focused ? '#111' : '#C0C0C0';
   const icone = focused ? onglet.icone : onglet.iconeOff;
 
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-      {/* Fond rond quand actif — style Toasty */}
       <View style={{
-        width: 44,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: focused ? couleurActif + '18' : 'transparent',
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 48, height: 30, borderRadius: 15,
+        backgroundColor: focused ? 'rgba(17,17,17,0.08)' : 'transparent',
+        alignItems: 'center', justifyContent: 'center',
       }}>
         <Ionicons name={icone} size={22} color={couleur} />
-        {/* Badge messages non lus */}
         {name === 'Messages' && totalNonLus > 0 && (
           <View style={{
-            position: 'absolute', top: -2, right: -2,
+            position: 'absolute', top: 0, right: 2,
             backgroundColor: '#EF4444',
             borderRadius: 8, minWidth: 16, height: 16,
             alignItems: 'center', justifyContent: 'center',
@@ -84,21 +78,15 @@ function IconeOnglet({ name, focused, couleurActif, totalNonLus }) {
 }
 
 function Onglets() {
-  const { theme, facteurTexte } = useApp();
+  const { facteurTexte } = useApp();
   const { totalNonLus } = useMessagerie();
-  const t = (size) => size * facteurTexte;
-  const couleurActif = '#111';
+  const t = (s) => s * facteurTexte;
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused }) => (
-          <IconeOnglet
-            name={route.name}
-            focused={focused}
-            couleurActif={couleurActif}
-            totalNonLus={totalNonLus}
-          />
+          <IconeOnglet name={route.name} focused={focused} totalNonLus={totalNonLus} />
         ),
         tabBarLabel: ({ focused }) => {
           const onglet = ONGLETS.find(o => o.name === route.name);
@@ -106,38 +94,29 @@ function Onglets() {
             <Text style={{
               fontSize: t(10),
               fontWeight: focused ? '600' : '400',
-              color: focused ? couleurActif : '#9CA3AF',
+              color: focused ? '#111' : '#C0C0C0',
               marginTop: -2,
-              letterSpacing: 0.1,
             }}>
               {onglet?.label || route.name}
             </Text>
           );
         },
         tabBarStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: 'rgba(255,255,255,0.97)',
           borderTopWidth: 0.5,
-          borderTopColor: '#F0F0F0',
-          height: Platform.OS === 'ios' ? 82 : 62,
+          borderTopColor: 'rgba(0,0,0,0.07)',
+          height: Platform.OS === 'ios' ? 84 : 64,
           paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-          // Ombre légère style Toasty
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.04,
-          shadowRadius: 8,
-          elevation: 8,
+          paddingBottom: Platform.OS === 'ios' ? 26 : 10,
         },
-        tabBarItemStyle: {
-          paddingTop: 2,
-        },
+        tabBarItemStyle: { paddingTop: 2 },
         headerShown: false,
       })}
     >
       <Tab.Screen name="Carte" component={CarteScreen} />
       <Tab.Screen name="Explorer" component={ExplorerScreen} />
       <Tab.Screen name="Messages" component={MessagerieScreen} />
-      <Tab.Screen name="Réglages" component={ReglagresScreen} />
+      <Tab.Screen name="Reglages" component={ReglagresScreen} />
     </Tab.Navigator>
   );
 }
@@ -146,27 +125,32 @@ function Navigation() {
   const [session, setSession] = useState(null);
   const [chargement, setChargement] = useState(true);
   const [onboardingVu, setOnboardingVu] = useState(true);
-  const { theme } = useApp();
   const navigationRef = useRef(null);
 
   const chargerProfil = async (userId) => {
     if (!userId) return;
-    const { data: profil } = await supabase
-      .from('profiles')
-      .select('onboarding_vu')
-      .eq('id', userId)
-      .single();
-    setOnboardingVu(profil?.onboarding_vu ?? false);
+    try {
+      const { data: profil } = await supabase
+        .from('profiles')
+        .select('onboarding_vu')
+        .eq('id', userId)
+        .single();
+      setOnboardingVu(profil?.onboarding_vu ?? true);
+    } catch {
+      setOnboardingVu(true);
+    }
   };
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session: sess } } = await supabase.auth.getSession();
-      setSession(sess);
-      if (sess?.user) {
-        enregistrerNotifications();
-        await chargerProfil(sess.user.id);
-      }
+      try {
+        const { data: { session: sess } } = await supabase.auth.getSession();
+        setSession(sess);
+        if (sess?.user) {
+          await chargerProfil(sess.user.id);
+          enregistrerNotifications();
+        }
+      } catch {}
       setChargement(false);
     };
     init();
@@ -174,18 +158,20 @@ function Navigation() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, sess) => {
       setSession(sess);
       if (sess?.user) {
-        enregistrerNotifications();
         await chargerProfil(sess.user.id);
+        enregistrerNotifications();
+      } else {
+        setOnboardingVu(true);
       }
     });
 
     const reponseListener = ajouterListenerReponse((response) => {
       const data = response.notification.request.content.data;
-      if (data?.evenementId && navigationRef.current) {
-        navigationRef.current.navigate('DetailEvenement', { evenement: { id: data.evenementId } });
-      }
       if (data?.convId && navigationRef.current) {
         navigationRef.current.navigate('Conversation', { convId: data.convId });
+      }
+      if (data?.evenementId && navigationRef.current) {
+        navigationRef.current.navigate('DetailEvenement', { evenement: { id: data.evenementId } });
       }
     });
 
@@ -198,15 +184,17 @@ function Navigation() {
   useEffect(() => {
     if (onboardingVu || !session?.user) return;
     const interval = setInterval(async () => {
-      const { data: profil } = await supabase
-        .from('profiles')
-        .select('onboarding_vu')
-        .eq('id', session.user.id)
-        .single();
-      if (profil?.onboarding_vu) {
-        setOnboardingVu(true);
-        clearInterval(interval);
-      }
+      try {
+        const { data: profil } = await supabase
+          .from('profiles')
+          .select('onboarding_vu')
+          .eq('id', session.user.id)
+          .single();
+        if (profil?.onboarding_vu) {
+          setOnboardingVu(true);
+          clearInterval(interval);
+        }
+      } catch {}
     }, 1500);
     return () => clearInterval(interval);
   }, [onboardingVu, session]);
@@ -214,12 +202,16 @@ function Navigation() {
   if (chargement) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
-        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-          <Ionicons name="location" size={26} color="#fff" />
+        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+          <Ionicons name="location" size={28} color="#111" />
         </View>
-        <Text style={{ color: '#fff', fontSize: 26, fontWeight: '600', letterSpacing: -0.5, marginBottom: 8 }}>Luma</Text>
-        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginBottom: 32 }}>rejoins ton quartier</Text>
-        <ActivityIndicator color="#2563EB" size="small" />
+        <Text style={{ color: '#fff', fontSize: 28, fontWeight: '700', letterSpacing: -0.8, marginBottom: 8 }}>
+          Luma
+        </Text>
+        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginBottom: 40 }}>
+          rejoins ton quartier
+        </Text>
+        <ActivityIndicator color="rgba(255,255,255,0.4)" size="small" />
       </View>
     );
   }

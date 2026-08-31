@@ -1,72 +1,51 @@
 {
-  "expo": {
-    "name": "Luma",
-    "slug": "luma",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "scheme": "luma",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#111111"
-    },
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.luma.app",
-      "buildNumber": "1",
-      "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Luma utilise ta position pour centrer la carte et trouver les événements proches.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Luma utilise ta position pour les notifications d'événements proches.",
-        "NSPhotoLibraryUsageDescription": "Luma accède à tes photos pour que tu puisses choisir une photo de profil ou créer une story.",
-        "NSPhotoLibraryAddUsageDescription": "Luma sauvegarde tes photos.",
-        "NSCameraUsageDescription": "Luma accède à ta caméra pour prendre une photo de profil ou créer une story.",
-        "NSMicrophoneUsageDescription": "Luma accède à ton micro pour enregistrer des vidéos dans tes stories.",
-        "UIBackgroundModes": ["fetch", "remote-notification"]
-      },
-      "config": {
-        "usesNonExemptEncryption": false
-      }
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#111111"
-      },
-      "package": "com.luma.app",
-      "versionCode": 1,
-      "permissions": [
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
-      ]
-    },
-    "plugins": [
-      "expo-location",
-      "expo-image-picker",
-      "expo-camera",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/icon.png",
-          "color": "#2563EB",
-          "sounds": [],
-          "mode": "production"
-        }
-      ],
-      "@react-native-community/datetimepicker",
-      "expo-video"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "3687e53e-3daf-4916-9132-a720982a44db"
-      }
-    },
-    "owner": "cocoluma"
+  "name": "luma",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@expo/ngrok": "^4.1.0",
+    "@expo/vector-icons": "^15.1.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "8.4.4",
+    "@react-navigation/bottom-tabs": "^7.15.11",
+    "@react-navigation/native": "^7.2.2",
+    "@react-navigation/native-stack": "^7.14.12",
+    "@rnmapbox/maps": "^10.3.0",
+    "@supabase/supabase-js": "^2.105.1",
+    "allocine-api": "^0.1.9",
+    "babel-preset-expo": "~57.0.0",
+    "dotenv": "^17.4.2",
+    "expo": "~57.0.11",
+    "expo-asset": "~12.0.13",
+    "expo-av": "~16.0.8",
+    "expo-camera": "~17.0.10",
+    "expo-device": "~8.0.10",
+    "expo-haptics": "~15.0.8",
+    "expo-image": "~3.0.11",
+    "expo-image-manipulator": "~14.0.8",
+    "expo-image-picker": "~17.0.11",
+    "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.17",
+    "expo-secure-store": "~15.0.8",
+    "expo-splash-screen": "~31.0.13",
+    "expo-status-bar": "~3.0.9",
+    "expo-video": "~3.0.16",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-map-clustering": "^4.0.0",
+    "react-native-maps": "1.20.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
   }
 }

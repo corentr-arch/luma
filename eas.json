@@ -17,8 +17,7 @@
     "preview": {
       "distribution": "internal",
       "ios": {
-        "simulator": false,
-        "enterpriseProvisioning": "adhoc"
+        "simulator": false
       },
       "android": {
         "buildType": "apk"
@@ -46,10 +45,6 @@
         "appleId": "ton-apple-id@email.com",
         "ascAppId": "TON_APP_STORE_ID",
         "appleTeamId": "TON_TEAM_ID"
-      },
-      "android": {
-        "serviceAccountKeyPath": "./google-services.json",
-        "track": "production"
       }
     }
   }
