@@ -32,6 +32,7 @@ LogBox.ignoreLogs([
   '`expo-notifications` functionality is not fully supported',
   'Notifications.getExpoPushTokenAsync',
   'The <CameraView> component does not support children',
+  'MapView',
 ]);
 
 const Tab = createBottomTabNavigator();
@@ -56,6 +57,7 @@ function IconeOnglet({ name, focused, totalNonLus }) {
         width: 48, height: 30, borderRadius: 15,
         backgroundColor: focused ? 'rgba(17,17,17,0.08)' : 'transparent',
         alignItems: 'center', justifyContent: 'center',
+        position: 'relative',
       }}>
         <Ionicons name={icone} size={22} color={couleur} />
         {name === 'Messages' && totalNonLus > 0 && (
@@ -84,6 +86,7 @@ function Onglets() {
 
   return (
     <Tab.Navigator
+      initialRouteName="Carte"
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused }) => (
           <IconeOnglet name={route.name} focused={focused} totalNonLus={totalNonLus} />
@@ -96,6 +99,7 @@ function Onglets() {
               fontWeight: focused ? '600' : '400',
               color: focused ? '#111' : '#C0C0C0',
               marginTop: -2,
+              letterSpacing: 0.1,
             }}>
               {onglet?.label || route.name}
             </Text>
@@ -201,14 +205,28 @@ function Navigation() {
 
   if (chargement) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
-        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+      <View style={{
+        flex: 1, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: '#111',
+      }}>
+        <View style={{
+          width: 64, height: 64, borderRadius: 20,
+          backgroundColor: '#fff',
+          alignItems: 'center', justifyContent: 'center',
+          marginBottom: 20,
+        }}>
           <Ionicons name="location" size={28} color="#111" />
         </View>
-        <Text style={{ color: '#fff', fontSize: 28, fontWeight: '700', letterSpacing: -0.8, marginBottom: 8 }}>
+        <Text style={{
+          color: '#fff', fontSize: 28, fontWeight: '700',
+          letterSpacing: -0.8, marginBottom: 8,
+        }}>
           Luma
         </Text>
-        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginBottom: 40 }}>
+        <Text style={{
+          color: 'rgba(255,255,255,0.3)', fontSize: 13,
+          marginBottom: 40,
+        }}>
           rejoins ton quartier
         </Text>
         <ActivityIndicator color="rgba(255,255,255,0.4)" size="small" />
@@ -230,7 +248,10 @@ function Navigation() {
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="AjoutEvenement" component={AjoutEvenementScreen} />
             <Stack.Screen name="DetailEvenement" component={DetailEvenementScreen} />
-            <Stack.Screen name="DetailEvenementOfficiel" component={DetailEvenementOfficielScreen} />
+            <Stack.Screen
+              name="DetailEvenementOfficiel"
+              component={DetailEvenementOfficielScreen}
+            />
             <Stack.Screen name="DetailLieu" component={DetailLieuScreen} />
             <Stack.Screen name="Conversation" component={ConversationScreen} />
             <Stack.Screen name="ProfilPublic" component={ProfilPublicScreen} />
