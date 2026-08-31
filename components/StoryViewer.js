@@ -1,4 +1,4 @@
-import {
+﻿import {
   View, Text, Image, TouchableOpacity, StyleSheet, Dimensions,
   Animated, TextInput, KeyboardAvoidingView, Platform,
   StatusBar, SafeAreaView, Alert,

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+﻿import { useEffect, useRef } from 'react';
 import { Animated, View, StyleSheet } from 'react-native';
 import { useApp } from '../AppContext';
 

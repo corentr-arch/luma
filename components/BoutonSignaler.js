@@ -1,4 +1,4 @@
-import { TouchableOpacity, Alert, ActionSheetIOS, Platform } from 'react-native';
+﻿import { TouchableOpacity, Alert, ActionSheetIOS, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { haptiqueErreur } from '../utils/haptics';

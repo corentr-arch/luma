@@ -1,4 +1,4 @@
-import { NavigationContainer } from '@react-navigation/native';
+﻿import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,7 +32,7 @@ LogBox.ignoreLogs([
   '`expo-notifications` functionality is not fully supported',
   'Notifications.getExpoPushTokenAsync',
   'The <CameraView> component does not support children',
-  'MapView',
+  'GO_BACK',
 ]);
 
 const Tab = createBottomTabNavigator();
@@ -235,8 +235,14 @@ function Navigation() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <NavigationContainer
+      ref={navigationRef}
+      storageKey="luma-nav-v3"
+    >
+      <Stack.Navigator
+        screenOptions={{ headerShown: false }}
+        initialRouteName="Main"
+      >
         {!session ? (
           <Stack.Screen name="Connexion" component={ConnexionScreen} />
         ) : !onboardingVu ? (
