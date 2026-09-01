@@ -3,7 +3,7 @@ import {
   FlatList, Image, TextInput, Modal, RefreshControl, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect, useCallback, memo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
 import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEvenements } from '../EvenementsContext';
@@ -166,7 +166,7 @@ export default function ExplorerScreen({ navigation }) {
 
   useEffect(() => {
     if (profil?.interets?.length > 0 || profil?.centres_interet?.length > 0) chargerPourToi();
-  }, [profil]);
+  }, [profil, positionUser]);
 
   const chargerPourToi = async () => {
     const interets = profil?.interets || profil?.centres_interet || [];
@@ -184,7 +184,30 @@ export default function ExplorerScreen({ navigation }) {
         .eq('actif', true).gte('date_debut', new Date().toISOString())
         .gte('latitude', 48.1).lte('latitude', 49.2).gte('longitude', 1.4).lte('longitude', 3.6)
         .in('categorie', cats).order('date_debut', { ascending: true }).limit(50);
-      if (data) setEvPourToi(data);
+
+      // Mélange les événements communautaires qui correspondent aussi aux goûts
+      // de l'utilisateur, pas seulement l'agenda officiel.
+      const communautairesAffinite = evenements.filter(ev => cats.includes(ev.categorie));
+
+      const fusion = [
+        ...(data || []).map(e => ({ ...e, _source: 'officiel' })),
+        ...communautairesAffinite.map(e => ({ ...e, _source: 'communautaire' })),
+      ];
+      const distance = (item) => (positionUser && item.latitude && item.longitude)
+        ? distanceKm(positionUser.latitude, positionUser.longitude, parseFloat(item.latitude), parseFloat(item.longitude))
+        : null;
+
+      // Trie par proximité quand la position est connue (les goûts filtrent déjà
+      // la pertinence, la proximité départage ensuite), sinon par date.
+      fusion.sort((a, b) => {
+        const da = distance(a), db = distance(b);
+        if (da !== null && db !== null) return da - db;
+        const dateA = new Date(a.date_debut || a.date_evenement || 0);
+        const dateB = new Date(b.date_debut || b.date_evenement || 0);
+        return dateA - dateB;
+      });
+
+      setEvPourToi(fusion);
     } catch {}
   };
 
@@ -296,7 +319,27 @@ export default function ExplorerScreen({ navigation }) {
     !recherche || ev.titre?.toLowerCase().includes(recherche.toLowerCase()) || ev.lieu?.toLowerCase().includes(recherche.toLowerCase())
   );
 
-  const evPourToiAffich = evPourToi.length > 0 ? evPourToi : evenementsOfficiels.slice(0, 20);
+  const evPourToiAffich = evPourToi.length > 0
+    ? evPourToi
+    : evenementsOfficiels.slice(0, 20).map(e => ({ ...e, _source: e._source || 'officiel' }));
+
+  // Événements (officiels + communautaires) triés par proximité, tous
+  // interêts confondus — indépendant des goûts, juste "ce qui est proche".
+  const evenementsProches = useMemo(() => {
+    if (!positionUser) return [];
+    const avecDistance = (item, source) => {
+      const lat = parseFloat(item.latitude), lon = parseFloat(item.longitude);
+      if (!lat || !lon) return null;
+      const dist = distanceKm(positionUser.latitude, positionUser.longitude, lat, lon);
+      return { ...item, _source: source, _distance: dist };
+    };
+    const officiels = evenementsOfficiels.map(e => avecDistance(e, 'officiel')).filter(Boolean);
+    const communautaires = evenements.map(e => avecDistance(e, 'communautaire')).filter(Boolean);
+    return [...officiels, ...communautaires]
+      .filter(e => e._distance <= 15)
+      .sort((a, b) => a._distance - b._distance)
+      .slice(0, 8);
+  }, [evenementsOfficiels, evenements, positionUser]);
   const voirSurCarte = useCallback((ev) => { setEvenementCible(ev); navigation.navigate('Carte'); }, [navigation, setEvenementCible]);
   const allerDetailOfficiel = useCallback((ev) => navigation.navigate('DetailEvenementOfficiel', { evenement: ev }), [navigation]);
   const allerDetail = useCallback((ev) => navigation.navigate('DetailEvenement', { evenement: ev }), [navigation]);
@@ -339,7 +382,7 @@ export default function ExplorerScreen({ navigation }) {
       {onglet === 'pourToi' && (
         <FlatList
           data={evPourToiAffich}
-          keyExtractor={item => `pt_${item.id}`}
+          keyExtractor={item => `pt_${item._source || 'officiel'}_${item.id}`}
           refreshControl={<RefreshControl refreshing={refresh} onRefresh={onRefresh} tintColor="#aaa" />}
           ListHeaderComponent={
             <>
@@ -363,7 +406,26 @@ export default function ExplorerScreen({ navigation }) {
                   <Ionicons name="chevron-forward" size={16} color="#ddd" />
                 </TouchableOpacity>
               )}
-              {evenements.slice(0, 3).length > 0 && (
+              {evenementsProches.length > 0 && (
+                <View style={styles.sectionBlock}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={[styles.sectionTitre, { fontSize: t(17) }]}>Près de chez toi 📍</Text>
+                    <TouchableOpacity onPress={() => navigation.navigate('Carte')}>
+                      <Text style={{ color: '#2563EB', fontSize: t(13), fontWeight: '500' }}>Voir la carte</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {evenementsProches.map(ev => (
+                    ev._source === 'communautaire' ? (
+                      <CarteEvenementCommunautaire key={`proche_comm_${ev.id}`} item={ev} t={t} positionUser={positionUser}
+                        onPress={allerDetail} onVoirCarte={voirSurCarte}
+                        CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES} />
+                    ) : (
+                      <CarteEvenementOfficiel key={`proche_off_${ev.id}`} item={ev} t={t} onPress={allerDetailOfficiel} positionUser={positionUser} />
+                    )
+                  ))}
+                </View>
+              )}
+              {!positionUser && evenements.slice(0, 3).length > 0 && (
                 <View style={styles.sectionBlock}>
                   <View style={styles.sectionHeader}>
                     <Text style={[styles.sectionTitre, { fontSize: t(17) }]}>Près de toi 👥</Text>
@@ -392,7 +454,13 @@ export default function ExplorerScreen({ navigation }) {
           }
           renderItem={({ item }) => (
             <View style={styles.sectionBlock}>
-              <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} positionUser={positionUser} />
+              {item._source === 'communautaire' ? (
+                <CarteEvenementCommunautaire item={item} t={t} positionUser={positionUser}
+                  onPress={allerDetail} onVoirCarte={voirSurCarte}
+                  CATEGORIES_COULEURS={CATEGORIES_COULEURS} CAT_ICONES={CAT_ICONES} />
+              ) : (
+                <CarteEvenementOfficiel item={item} t={t} onPress={allerDetailOfficiel} positionUser={positionUser} />
+              )}
             </View>
           )}
           ListEmptyComponent={
