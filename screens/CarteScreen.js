@@ -60,6 +60,21 @@ function getLieuConfig(categorie, sousCategorie) {
   return LIEUX_CATEGORIES[sousCategorie] || CATEGORIES[categorie] || { couleur: '#6B7280', icone: 'location', bg: '#F3F4F6' };
 }
 
+// Les catégories des événements communautaires (AppContext.CATEGORIES) sont
+// sans accents ("Theatre") alors que celles des événements officiels et des
+// centres d'intérêt du profil sont accentuées ("Théâtre") : on compare tout
+// sous forme normalisée pour que le filtre matche les deux.
+function normaliserCategorie(s) {
+  const sansAccents = (s || '').toLowerCase().normalize('NFD');
+  let out = '';
+  for (const ch of sansAccents) {
+    const code = ch.codePointAt(0);
+    if (code >= 0x0300 && code <= 0x036f) continue; // diacritiques combinants
+    if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) out += ch;
+  }
+  return out;
+}
+
 function distanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -137,7 +152,7 @@ const MarqueurStory = memo(({ story, onPress }) => {
 // ── Écran principal ────────────────────────────────────────────────────────
 export default function CarteScreen({ navigation }) {
   const { evenements, erreurReseau, chargerEvenements } = useEvenements();
-  const { theme, facteurTexte, ajouterFavori, estFavori, evenementCible, setEvenementCible } = useApp();
+  const { theme, facteurTexte, ajouterFavori, estFavori, evenementCible, setEvenementCible, rayonDefaut, profil } = useApp();
 
   const [pointSelectionne, setPointSelectionne] = useState(null);
   const [officielSelectionne, setOfficielSelectionne] = useState(null);
@@ -236,6 +251,21 @@ export default function CarteScreen({ navigation }) {
       setPret(true);
     })();
   }, []);
+
+  // Rayon par défaut défini dans Réglages (au lieu de "tout afficher" systématiquement)
+  useEffect(() => { setRayon(rayonDefaut); }, [rayonDefaut]);
+
+  // Pré-sélectionne les centres d'intérêt du profil au tout premier chargement
+  // (une seule fois — ne réécrase pas un choix manuel fait ensuite dans la session)
+  const interetsAppliques = useRef(false);
+  useEffect(() => {
+    if (interetsAppliques.current) return;
+    const interets = profil?.centres_interet;
+    if (interets && interets.length > 0) {
+      setFiltresCategories(interets);
+      interetsAppliques.current = true;
+    }
+  }, [profil]);
 
   useFocusEffect(useCallback(() => { if (pret) chargerStories(); }, [pret]));
 
@@ -349,14 +379,16 @@ export default function CarteScreen({ navigation }) {
     setFiltresCategories([]); setLieuxCategoriesActives(Object.keys(LIEUX_CATEGORIES));
     setAfficherCommunautaires(true); setAfficherOfficiels(true);
     setAfficherLieux(false); setAfficherStories(true);
-    setFiltreDate('tous'); setRayon(null);
+    setFiltreDate('tous'); setRayon(rayonDefaut);
   };
 
   const plageDate = getPlageDates(filtreDate, datePrecise);
   const centre = positionUser || PARIS;
 
+  const filtresCategoriesNorm = filtresCategories.map(normaliserCategorie);
+
   const evenementsFiltres = afficherCommunautaires ? evenements.filter(p => {
-    const matchCat = filtresCategories.length === 0 || filtresCategories.includes(p.categorie);
+    const matchCat = filtresCategories.length === 0 || filtresCategoriesNorm.includes(normaliserCategorie(p.categorie));
     const matchRayon = !rayon || !positionUser || distanceKm(centre.latitude, centre.longitude, p.latitude, p.longitude) * 1000 <= rayon;
     let matchDate = true;
     if (plageDate && p.type !== 'fixe') {
@@ -367,7 +399,7 @@ export default function CarteScreen({ navigation }) {
   }) : [];
 
   const officielsFiltres = afficherOfficiels ? evenementsOfficiels.filter(ev => {
-    const matchCat = filtresCategories.length === 0 || filtresCategories.includes(ev.categorie);
+    const matchCat = filtresCategories.length === 0 || filtresCategoriesNorm.includes(normaliserCategorie(ev.categorie));
     const matchRayon = !rayon || !positionUser || !ev.latitude || !ev.longitude || distanceKm(centre.latitude, centre.longitude, parseFloat(ev.latitude), parseFloat(ev.longitude)) * 1000 <= rayon;
     let matchDate = true;
     if (plageDate) {
@@ -668,7 +700,7 @@ export default function CarteScreen({ navigation }) {
                 <Text style={{ color: filtresCategories.length === 0 ? '#fff' : '#888', fontSize: t(10), marginTop: 4, textAlign: 'center' }}>Toutes</Text>
               </TouchableOpacity>
               {Object.entries(CATEGORIES).map(([nom, c]) => {
-                const actif = filtresCategories.includes(nom);
+                const actif = filtresCategoriesNorm.includes(normaliserCategorie(nom));
                 return (
                   <TouchableOpacity
                     key={nom}

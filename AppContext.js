@@ -49,7 +49,9 @@ export function AppProvider({ children }) {
   const [modeSombre, setModeSombreState] = useState(false);
   const [tailleTexte, setTailleTexteState] = useState('normale');
   const [daltonien, setDaltonienState] = useState(false);
-  const [rayonDefaut, setRayonDefautState] = useState(null);
+  // 10 km par défaut (pas "tout afficher") : évite de charger la totalité des
+  // ~2500 événements d'Île-de-France au démarrage, meilleure perf initiale.
+  const [rayonDefaut, setRayonDefautState] = useState(10000);
   const [animationsReduites, setAnimationsReduitesState] = useState(false);
   const [visibiliteDefaut, setVisibiliteDefautState] = useState('public');
   const [utilisateursBlockes, setUtilisateursBlockes] = useState([]);

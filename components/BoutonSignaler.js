@@ -1,7 +1,7 @@
 ﻿import { TouchableOpacity, Alert, ActionSheetIOS, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
-import { haptiqueErreur } from '../utils/haptics';
+import { haptiqueErreur, haptiqueSucces } from '../utils/haptics';
 
 const RAISONS = [
   'Contenu inapproprié',

@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { useApp } from '../AppContext';
 import { supabase } from '../supabase';
 import StoryViewer from '../components/StoryViewer';
+import BoutonSignaler from '../components/BoutonSignaler';
 
 export default function ProfilPublicScreen({ route, navigation }) {
   const { userId } = route.params;
@@ -137,7 +138,9 @@ export default function ProfilPublicScreen({ route, navigation }) {
           <Text style={{ color: '#2563EB', fontSize: t(16) }}>Retour</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitre, { fontSize: t(16) }]} numberOfLines={1}>{profil.prenom || 'Profil'}</Text>
-        <View style={{ width: 70 }} />
+        <View style={{ width: 70, alignItems: 'flex-end' }}>
+          {!estMoi && <BoutonSignaler type="profil" id={userId} couleur="#888" taille={19} />}
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>

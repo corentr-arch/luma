@@ -426,6 +426,7 @@ export default function ExplorerScreen({ navigation }) {
       {/* ── POUR TOI ── */}
       {onglet === 'pourToi' && (
         <FlatList
+          style={{ flex: 1 }}
           data={evPourToiAffich}
           keyExtractor={item => `pt_${item._source || 'officiel'}_${item.id}`}
           refreshControl={<RefreshControl refreshing={refresh} onRefresh={onRefresh} tintColor="#aaa" />}
@@ -522,6 +523,7 @@ export default function ExplorerScreen({ navigation }) {
       {/* ── ACTIVITÉ (abonnements) ── */}
       {onglet === 'activite' && (
         <FlatList
+          style={{ flex: 1 }}
           data={activite}
           keyExtractor={item => item.id}
           contentContainerStyle={{ padding: 16, gap: 10, flexGrow: 1 }}
@@ -607,6 +609,7 @@ export default function ExplorerScreen({ navigation }) {
 
           {categorieActive === 'cinema' && modeRechercheFilm ? (
             <FlatList
+              style={{ flex: 1 }}
               data={resultatsFilm}
               keyExtractor={(item, i) => `film_${i}`}
               renderItem={({ item }) => (
@@ -656,6 +659,7 @@ export default function ExplorerScreen({ navigation }) {
             />
           ) : categorieActive ? (
             <FlatList
+              style={{ flex: 1 }}
               data={lieuxFiltres}
               keyExtractor={item => `lieu_${item.id}`}
               renderItem={({ item }) => {
@@ -737,6 +741,7 @@ export default function ExplorerScreen({ navigation }) {
           )}
 
           <FlatList
+            style={{ flex: 1 }}
             data={agendaFiltres}
             keyExtractor={item => `agenda_${item.id}`}
             refreshControl={<RefreshControl refreshing={refresh} onRefresh={onRefresh} tintColor="#aaa" />}
@@ -778,6 +783,7 @@ export default function ExplorerScreen({ navigation }) {
             {recherche.length > 0 && <TouchableOpacity onPress={() => setRecherche('')}><Ionicons name="close-circle" size={16} color="#aaa" /></TouchableOpacity>}
           </View>
           <FlatList
+            style={{ flex: 1 }}
             data={communautairesFiltres}
             keyExtractor={item => `comm_${item.id}`}
             renderItem={({ item }) => (
