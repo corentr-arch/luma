@@ -182,6 +182,7 @@ export default function ExplorerScreen({ navigation }) {
     try {
       const { data } = await supabase.from('evenements_officiels').select('*')
         .eq('actif', true).gte('date_debut', new Date().toISOString())
+        .gte('latitude', 48.1).lte('latitude', 49.2).gte('longitude', 1.4).lte('longitude', 3.6)
         .in('categorie', cats).order('date_debut', { ascending: true }).limit(50);
       if (data) setEvPourToi(data);
     } catch {}
@@ -658,7 +659,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 58 : 20, paddingBottom: 8 },
   titre: { fontWeight: '700', color: '#111', letterSpacing: -0.5 },
   storyBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#111', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
-  ongletsScroll: { maxHeight: 48 },
+  ongletsScroll: { flexGrow: 0 },
   ongletsContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 7 },
   onglet: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#f0f0ee' },
   ongletActif: { backgroundColor: '#111' },
