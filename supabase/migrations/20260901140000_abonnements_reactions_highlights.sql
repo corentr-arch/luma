@@ -93,6 +93,36 @@ create policy "Un utilisateur supprime sa reaction" on evenements_reactions
   for delete using (auth.uid() = user_id);
 
 -- ============================================================
+-- 2bis) RPC pour notifier un AUTRE utilisateur (commentaire, participation,
+--       nouvel abonné...). Un insert direct dans notifications pour le
+--       compte de quelqu'un d'autre serait bloqué par la RLS, comme pour
+--       conversation_membres — même solution : RPC security definer qui
+--       vérifie explicitement l'appelant.
+-- ============================================================
+create or replace function creer_notification(
+  destinataire_id uuid, p_titre text, p_corps text, p_type text,
+  p_evenement_id bigint default null, p_conv_id bigint default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Non authentifié';
+  end if;
+  if destinataire_id = auth.uid() then
+    return; -- pas de notification à soi-même
+  end if;
+  insert into notifications (user_id, titre, corps, type, lu, evenement_id, conv_id)
+  values (destinataire_id, p_titre, p_corps, p_type, false, p_evenement_id, p_conv_id);
+end;
+$$;
+
+grant execute on function creer_notification(uuid, text, text, text, bigint, bigint) to authenticated;
+
+-- ============================================================
 -- 3) Stories à la une (highlights) — juste un flag pour l'UI.
 --    La désactivation automatique (edge function nettoyer-stories,
 --    hors dépôt) se base sur expires_at : pour survivre au nettoyage

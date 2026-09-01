@@ -61,6 +61,12 @@ export default function ProfilPublicScreen({ route, navigation }) {
       } else {
         const { error } = await supabase.from('abonnements').insert({ follower_id: monProfil.id, suivi_id: userId });
         if (error) throw error;
+        supabase.rpc('creer_notification', {
+          destinataire_id: userId,
+          p_titre: `${monProfil.prenom || 'Quelqu\'un'} s'est abonné à toi`,
+          p_corps: '',
+          p_type: 'systeme',
+        }).then(() => {});
       }
     } catch {
       setEstAbonne(etaitAbonne);

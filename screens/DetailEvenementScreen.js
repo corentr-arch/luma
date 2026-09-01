@@ -74,6 +74,15 @@ export default function DetailEvenementScreen({ route, navigation }) {
         setParticipation(true);
         setEvenement(prev => ({ ...prev, participants: (prev.participants || 0) + 1 }));
         Alert.alert('Inscrit ! 🎉', 'Tu participeras à cet événement.');
+        if (evenement.auteur_id && evenement.auteur_id !== profil.id) {
+          supabase.rpc('creer_notification', {
+            destinataire_id: evenement.auteur_id,
+            p_titre: `${profil.prenom || 'Quelqu\'un'} participe à ton événement`,
+            p_corps: evenement.titre || '',
+            p_type: 'participation',
+            p_evenement_id: evenement.id,
+          }).then(() => {});
+        }
       }
       chargerEvenements();
     } catch (e) { Alert.alert('Erreur', String(e?.message || e)); }
@@ -103,6 +112,15 @@ export default function DetailEvenementScreen({ route, navigation }) {
       if (data) {
         setCommentaires(prev => [data, ...prev]);
         setCommentaire('');
+        if (evenement.auteur_id && evenement.auteur_id !== profil.id) {
+          supabase.rpc('creer_notification', {
+            destinataire_id: evenement.auteur_id,
+            p_titre: `${profil.prenom || 'Quelqu\'un'} a commenté ton événement`,
+            p_corps: data.contenu.slice(0, 100),
+            p_type: 'commentaire',
+            p_evenement_id: evenement.id,
+          }).then(() => {});
+        }
       }
     } catch {}
     setEnvoi(false);
