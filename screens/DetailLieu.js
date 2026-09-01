@@ -205,7 +205,7 @@ export default function DetailLieu({ route, navigation }) {
   const chargerStoriesLieu = async () => {
     try {
       const { data } = await supabase
-        .from('stories').select('*').eq('actif', true).eq('lieu_id', lieu.id)
+        .from('stories').select('*').eq('actif', true).eq('archivee', false).eq('lieu_id', lieu.id)
         .gte('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false }).limit(20);
       if (data) setStories(data);

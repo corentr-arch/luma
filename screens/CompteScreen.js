@@ -96,7 +96,7 @@ export default function CompteScreen({ navigation }) {
     try {
       const { data } = await supabase
         .from('stories')
-        .select('id, media_url, media_type, type, texte, adresse, created_at, expires_at, actif, nb_vues, nb_likes, latitude, longitude, profiles(id, prenom, avatar_url)')
+        .select('id, media_url, media_type, type, texte, adresse, created_at, expires_at, actif, nb_vues, nb_likes, archivee, latitude, longitude, profiles(id, prenom, avatar_url)')
         .eq('user_id', userId)
         .eq('actif', true)
         .order('created_at', { ascending: false })
@@ -118,6 +118,28 @@ export default function CompteScreen({ navigation }) {
       if (data) setMesFavoris(data.filter(f => f.evenements));
     } catch {}
     setChargementFavoris(false);
+  };
+
+  const togglerHighlight = async (story) => {
+    const nouvelEtat = !story.archivee;
+    setMesStories(prev => prev.map(s => s.id === story.id ? { ...s, archivee: nouvelEtat } : s));
+    try {
+      if (nouvelEtat) {
+        // Repousse l'expiration loin dans le futur pour que la story survie
+        // au nettoyage horaire (edge function nettoyer-stories, hors dépôt)
+        // tant qu'elle est épinglée à la une.
+        const dans100Ans = new Date();
+        dans100Ans.setFullYear(dans100Ans.getFullYear() + 100);
+        await supabase.from('stories').update({ archivee: true, expires_at: dans100Ans.toISOString() }).eq('id', story.id);
+      } else {
+        const expirationNormale = new Date(story.created_at);
+        expirationNormale.setHours(expirationNormale.getHours() + 24);
+        await supabase.from('stories').update({ archivee: false, expires_at: expirationNormale.toISOString() }).eq('id', story.id);
+      }
+    } catch {
+      setMesStories(prev => prev.map(s => s.id === story.id ? { ...s, archivee: story.archivee } : s));
+      Alert.alert('Erreur', 'Impossible de mettre à jour la story');
+    }
   };
 
   const supprimerStory = async (storyId) => {
@@ -425,6 +447,14 @@ export default function CompteScreen({ navigation }) {
                           {story.type === 'spot' ? '⚡' : story.type === 'evenement' ? '🎉' : '📍'}
                         </Text>
                       </View>
+                      {/* À la une */}
+                      <TouchableOpacity
+                        style={[styles.storyPinBadge, story.archivee && styles.storyPinBadgeActif]}
+                        onPress={() => togglerHighlight(story)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Ionicons name={story.archivee ? 'star' : 'star-outline'} size={12} color="#fff" />
+                      </TouchableOpacity>
                       {/* Stats */}
                       <View style={styles.storyStats}>
                         <Ionicons name="eye-outline" size={10} color="#fff" />
@@ -445,7 +475,7 @@ export default function CompteScreen({ navigation }) {
           )}
           {mesStories.length > 0 && (
             <Text style={{ color: theme.text3, fontSize: t(10), marginTop: 8, textAlign: 'center' }}>
-              Appuie longuement pour supprimer
+              ⭐ pour épingler à la une · Appui long pour supprimer
             </Text>
           )}
         </View>
@@ -684,6 +714,8 @@ const styles = StyleSheet.create({
   storyExpiredOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
   storyTypeBadge: { position: 'absolute', top: 4, left: 4, borderRadius: 8, paddingHorizontal: 4, paddingVertical: 2 },
   storyStats: { position: 'absolute', bottom: 4, right: 4, flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 2 },
+  storyPinBadge: { position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  storyPinBadgeActif: { backgroundColor: '#F59E0B' },
   storyAjouter: { borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
   favoriItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, borderWidth: 0.5 },
   favoriSupprimerBtn: { padding: 4 },

@@ -258,7 +258,7 @@ export default function ExplorerScreen({ navigation }) {
   const chargerStories = async () => {
     try {
       const { data } = await supabase.from('stories')
-        .select('*, profiles(id, prenom, avatar_url)').eq('actif', true)
+        .select('*, profiles(id, prenom, avatar_url)').eq('actif', true).eq('archivee', false)
         .gte('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false }).limit(50);
       if (data) setStories(data);

@@ -181,7 +181,7 @@ export default function CarteScreen({ navigation }) {
 
   const chargerStories = async () => {
     try {
-      const { data, error } = await supabase.from('stories').select('*').eq('actif', true)
+      const { data, error } = await supabase.from('stories').select('*').eq('actif', true).eq('archivee', false)
         .gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(50);
       if (error) console.error('chargerStories:', error.message);
       if (data) setStories(data);
