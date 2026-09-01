@@ -75,12 +75,10 @@ export default function MessagerieScreen({ navigation }) {
       const mesIds = new Set((mesMembres || []).map(m => m.conversation_id));
       const convCommune = (saMembres || []).find(m => mesIds.has(m.conversation_id));
       if (convCommune) { fermerModal(); navigation.navigate('Conversation', { convId: convCommune.conversation_id, interlocuteur: autreUser }); return; }
-      const { data: nouvelleConv, error } = await supabase.from('conversations').insert({ type: 'direct' }).select('id').single();
-      if (error || !nouvelleConv) { Alert.alert('Erreur', error?.message); return; }
-      await supabase.from('conversation_membres').insert({ conversation_id: nouvelleConv.id, user_id: profil.id });
-      await supabase.from('conversation_membres').insert({ conversation_id: nouvelleConv.id, user_id: autreUser.id });
+      const { data: convId, error } = await supabase.rpc('creer_conversation_directe', { autre_user_id: autreUser.id });
+      if (error || !convId) { Alert.alert('Erreur', error?.message); return; }
       fermerModal();
-      navigation.navigate('Conversation', { convId: nouvelleConv.id, interlocuteur: autreUser });
+      navigation.navigate('Conversation', { convId, interlocuteur: autreUser });
       setTimeout(chargerConversations, 500);
     } catch (e) { Alert.alert('Erreur', String(e?.message || e)); }
   };

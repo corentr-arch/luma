@@ -31,7 +31,7 @@ export default function ProfilPublicScreen({ route, navigation }) {
       const [{ data: p }, { data: s }, { data: ev }] = await Promise.all([
         supabase.from('profiles').select('id, prenom, handle, bio, avatar_url, arrondissement, centres_interet, score_confiance, created_at, is_organisateur').eq('id', userId).single(),
         supabase.from('stories').select('id, media_url, media_type, type, texte, adresse, created_at, expires_at, actif, nb_vues, nb_likes, latitude, longitude, profiles(id, prenom, avatar_url)').eq('user_id', userId).eq('actif', true).gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(20),
-        supabase.from('evenements').select('id, titre, lieu, date_evenement, categorie, participants, max, sans_max').eq('auteur_id', userId).eq('suspendu', false).gte('date_evenement', new Date().toISOString()).order('date_evenement', { ascending: true }).limit(10),
+        supabase.from('evenements').select('id, titre, lieu, date_evenement, categorie, participants:participants_count, max:max_participants, sans_max').eq('auteur_id', userId).eq('suspendu', false).gte('date_evenement', new Date().toISOString()).order('date_evenement', { ascending: true }).limit(10),
       ]);
       if (p) setProfil(p);
       if (s) setStories(s);
@@ -48,13 +48,9 @@ export default function ProfilPublicScreen({ route, navigation }) {
       const mesIds = new Set((mesMembres || []).map(m => m.conversation_id));
       const convCommune = (saMembres || []).find(m => mesIds.has(m.conversation_id));
       if (convCommune) { navigation.navigate('Conversation', { convId: convCommune.conversation_id, interlocuteur: profil }); return; }
-      const { data: nouvelleConv, error } = await supabase.from('conversations').insert({ type: 'direct' }).select('id').single();
-      if (error || !nouvelleConv) return;
-      await supabase.from('conversation_membres').insert([
-        { conversation_id: nouvelleConv.id, user_id: monProfil.id },
-        { conversation_id: nouvelleConv.id, user_id: userId },
-      ]);
-      navigation.navigate('Conversation', { convId: nouvelleConv.id, interlocuteur: profil });
+      const { data: convId, error } = await supabase.rpc('creer_conversation_directe', { autre_user_id: userId });
+      if (error || !convId) return;
+      navigation.navigate('Conversation', { convId, interlocuteur: profil });
     } catch { Alert.alert('Erreur', 'Impossible d\'ouvrir la conversation'); }
   };
 
