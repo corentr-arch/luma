@@ -98,6 +98,7 @@ export default function CompteScreen({ navigation }) {
         .from('stories')
         .select('id, media_url, media_type, type, texte, adresse, created_at, expires_at, actif, nb_vues, nb_likes, latitude, longitude, profiles(id, prenom, avatar_url)')
         .eq('user_id', userId)
+        .eq('actif', true)
         .order('created_at', { ascending: false })
         .limit(50);
       if (data) setMesStories(data);
@@ -640,12 +641,12 @@ export default function CompteScreen({ navigation }) {
           <StoryViewer
             stories={mesStories}
             indexDepart={storyIndex}
+            navigation={navigation}
             onFermer={() => setStoryViewerVisible(false)}
             onStoryDeleted={(id) => {
               setMesStories(prev => prev.filter(s => s.id !== id));
               setNbStories(n => Math.max(0, n - 1));
             }}
-            navigation={navigation}
           />
         </Modal>
       )}

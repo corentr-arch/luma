@@ -60,6 +60,7 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     if (!story) return;
     setLiked(false);
     setNbLikes(story.nb_likes || 0);
+    verifierLike();
     marquerVue();
 
     if (estVideo) {
@@ -108,6 +109,15 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     }
   }, [pause]);
 
+  const verifierLike = async () => {
+    if (!profil || !story) return;
+    try {
+      const { data } = await supabase.from('stories_likes').select('id')
+        .eq('story_id', story.id).eq('user_id', profil.id).maybeSingle();
+      setLiked(!!data);
+    } catch {}
+  };
+
   const marquerVue = async () => {
     if (!profil || !story) return;
     try {
@@ -143,15 +153,28 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
   const toggleLike = async () => {
     if (!profil || !story) return;
     await haptiqueLeger();
-    if (liked) {
-      await supabase.from('stories_likes').delete().eq('story_id', story.id).eq('user_id', profil.id);
-      setNbLikes(n => Math.max(0, n - 1));
-    } else {
-      await haptiqueSucces();
-      await supabase.from('stories_likes').insert({ story_id: story.id, user_id: profil.id });
-      setNbLikes(n => n + 1);
+    const etaitLike = liked;
+    const nouveauCompte = etaitLike ? Math.max(0, nbLikes - 1) : nbLikes + 1;
+
+    // Optimiste : on met à jour l'affichage tout de suite, on annule si ça échoue.
+    setLiked(!etaitLike);
+    setNbLikes(nouveauCompte);
+
+    try {
+      if (etaitLike) {
+        const { error } = await supabase.from('stories_likes').delete().eq('story_id', story.id).eq('user_id', profil.id);
+        if (error) throw error;
+      } else {
+        await haptiqueSucces();
+        const { error } = await supabase.from('stories_likes').insert({ story_id: story.id, user_id: profil.id });
+        if (error) throw error;
+      }
+      // stories.nb_likes est maintenu par un trigger DB (supabase/migrations) -
+      // pas besoin de le mettre à jour ici.
+    } catch {
+      setLiked(etaitLike);
+      setNbLikes(nbLikes);
     }
-    setLiked(l => !l);
   };
 
   const supprimerStory = () => {
@@ -184,12 +207,44 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
     );
   };
 
+  const [envoiMessage, setEnvoiMessage] = useState(false);
+
+  const contacterAuteur = async () => {
+    if (!profil || !story || !auteur || envoiMessage) return;
+    setPause(true);
+    setEnvoiMessage(true);
+    try {
+      const { data: convId, error } = await supabase.rpc('creer_conversation_directe', { autre_user_id: auteur.id });
+      if (error || !convId) { Alert.alert('Erreur', 'Impossible d\'ouvrir la conversation'); return; }
+      onFermer();
+      navigation?.navigate('Conversation', { convId, interlocuteur: auteur });
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\'ouvrir la conversation');
+    } finally {
+      setEnvoiMessage(false);
+    }
+  };
+
   const envoyerReponse = async () => {
-    if (!reponse.trim() || !profil || !story) return;
-    await supabase.from('stories_reponses').insert({ story_id: story.id, user_id: profil.id, texte: reponse.trim() });
-    await haptiqueSucces();
+    if (!reponse.trim() || !profil || !story || !auteur) return;
+    const texteEnvoye = reponse.trim();
     setReponse('');
     setShowReponse(false);
+    try {
+      await supabase.from('stories_reponses').insert({ story_id: story.id, user_id: profil.id, texte: texteEnvoye });
+      // La réponse doit atteindre l'auteur : elle part aussi comme vrai message
+      // dans sa messagerie (sinon elle restait invisible, personne ne la lisait).
+      const { data: convId } = await supabase.rpc('creer_conversation_directe', { autre_user_id: auteur.id });
+      if (convId) {
+        await supabase.from('messages_luma').insert({
+          conversation_id: convId, auteur_id: profil.id,
+          contenu: `📸 En réponse à ta story : ${texteEnvoye}`, lu: false,
+        });
+      }
+      await haptiqueSucces();
+    } catch {
+      Alert.alert('Erreur', 'Le message n\'a pas pu être envoyé');
+    }
     setPause(false);
   };
 
@@ -369,6 +424,11 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
               <Ionicons name={liked ? 'heart' : 'heart-outline'} size={28} color={liked ? '#EF4444' : '#fff'} />
               {nbLikes > 0 && <Text style={styles.actionCount}>{nbLikes}</Text>}
             </TouchableOpacity>
+            {!estMonStory && navigation && (
+              <TouchableOpacity style={styles.actionBtn} onPress={contacterAuteur} disabled={envoiMessage}>
+                <Ionicons name="paper-plane-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
             {story.latitude && story.longitude && onVoirCarte && (
               <TouchableOpacity
                 style={styles.actionBtn}

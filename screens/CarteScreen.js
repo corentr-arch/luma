@@ -857,6 +857,7 @@ export default function CarteScreen({ navigation }) {
         <Modal visible animationType="fade" statusBarTranslucent>
           <StoryViewer
             stories={storiesSelectionnees}
+            navigation={navigation}
             onFermer={() => setStoryViewerVisible(false)}
             onVoirCarte={(lat, lon) => {
               setStoryViewerVisible(false);
