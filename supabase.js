@@ -20,7 +20,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
             ...options,
             headers: {
               ...options.headers,
-              'x-app-version': '1.0.0',
             },
           });
           return response;
