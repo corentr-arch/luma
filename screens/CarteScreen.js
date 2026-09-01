@@ -150,7 +150,7 @@ export default function CarteScreen({ navigation }) {
   const [afficherOfficiels, setAfficherOfficiels] = useState(true);
   const [afficherLieux, setAfficherLieux] = useState(false);
   const [afficherStories, setAfficherStories] = useState(true);
-  const [lieuxCategoriesActives, setLieuxCategoriesActives] = useState([]);
+  const [lieuxCategoriesActives, setLieuxCategoriesActives] = useState(Object.keys(LIEUX_CATEGORIES));
   const [filtresCategories, setFiltresCategories] = useState([]);
   const [filtreDate, setFiltreDate] = useState('tous');
   const [datePrecise, setDatePrecise] = useState(new Date());
@@ -181,32 +181,48 @@ export default function CarteScreen({ navigation }) {
 
   const chargerStories = async () => {
     try {
-      const { data } = await supabase.from('stories').select('*').eq('actif', true)
+      const { data, error } = await supabase.from('stories').select('*').eq('actif', true)
         .gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(50);
+      if (error) console.error('chargerStories:', error.message);
       if (data) setStories(data);
-    } catch {}
+    } catch (e) { console.error('chargerStories:', e.message); }
   };
 
   const chargerLieux = async (pos, rayonM) => {
     try {
-      const { data } = await supabase.rpc('lieux_dans_rayon', { lat: pos.latitude, lng: pos.longitude, rayon_metres: rayonM });
+      const { data, error } = await supabase.rpc('lieux_dans_rayon', { lat: pos.latitude, lng: pos.longitude, rayon_metres: rayonM });
+      if (error) console.error('chargerLieux:', error.message);
       if (data) setLieuxOfficiels(data);
-    } catch {}
+    } catch (e) { console.error('chargerLieux:', e.message); }
   };
 
   const chargerEvenementsOfficiels = async () => {
     try {
-      const { data } = await supabase.from('evenements_officiels')
-        .select('id, titre, categorie, lieu, adresse, latitude, longitude, date_debut, date_fin, url, organisateur, gratuit, prix_min, salle, lieu_id')
-        .eq('actif', true).not('latitude', 'is', null).not('longitude', 'is', null)
-        .gte('latitude', 48.1).lte('latitude', 49.2).gte('longitude', 1.4).lte('longitude', 3.6)
-        .gte('date_debut', new Date().toISOString()).order('date_debut', { ascending: true }).limit(2000);
-      if (data) setEvenementsOfficiels(data);
-    } catch {}
+      const PAGE = 1000;
+      const MAX = 5000;
+      let tous = [];
+      for (let offset = 0; offset < MAX; offset += PAGE) {
+        const { data, error } = await supabase.from('evenements_officiels')
+          .select('id, titre, categorie, lieu, adresse, latitude, longitude, date_debut, date_fin, url, organisateur, gratuit, prix_min, salle, lieu_id')
+          .eq('actif', true).not('latitude', 'is', null).not('longitude', 'is', null)
+          .gte('latitude', 48.1).lte('latitude', 49.2).gte('longitude', 1.4).lte('longitude', 3.6)
+          .gte('date_debut', new Date().toISOString())
+          .order('date_debut', { ascending: true }).order('id', { ascending: true })
+          .range(offset, offset + PAGE - 1);
+        if (error) { console.error('chargerEvenementsOfficiels:', error.message); break; }
+        if (!data || data.length === 0) break;
+        tous = tous.concat(data);
+        if (data.length < PAGE) break;
+      }
+      const uniques = [...new Map(tous.map(e => [e.id, e])).values()];
+      setEvenementsOfficiels(uniques);
+    } catch (e) { console.error('chargerEvenementsOfficiels:', e.message); }
   };
 
   useEffect(() => {
     (async () => {
+      const tachesIndependantes = Promise.all([chargerEvenementsOfficiels(), chargerStories()]);
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -216,8 +232,7 @@ export default function CarteScreen({ navigation }) {
       } else {
         chargerLieux(PARIS, 50000);
       }
-      await chargerEvenementsOfficiels();
-      await chargerStories();
+      await tachesIndependantes;
       setPret(true);
     })();
   }, []);
@@ -331,7 +346,7 @@ export default function CarteScreen({ navigation }) {
   };
 
   const toutEffacer = () => {
-    setFiltresCategories([]); setLieuxCategoriesActives([]);
+    setFiltresCategories([]); setLieuxCategoriesActives(Object.keys(LIEUX_CATEGORIES));
     setAfficherCommunautaires(true); setAfficherOfficiels(true);
     setAfficherLieux(false); setAfficherStories(true);
     setFiltreDate('tous'); setRayon(null);
@@ -568,7 +583,7 @@ export default function CarteScreen({ navigation }) {
       {/* ── Compteur ── */}
       {!menuOuvert && !showRecherche && totalVisible > 0 && (
         <View style={styles.compteur}>
-          <Ionicons name="map-pin" size={10} color="rgba(255,255,255,0.7)" />
+          <Ionicons name="location" size={10} color="rgba(255,255,255,0.7)" />
           <Text style={{ color: '#fff', fontSize: t(11), fontWeight: '500' }}>{totalVisible} éléments</Text>
         </View>
       )}
