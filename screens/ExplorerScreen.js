@@ -150,6 +150,9 @@ export default function ExplorerScreen({ navigation }) {
   const [datePrecise, setDatePrecise] = useState(new Date());
   const [filtreGratuit, setFiltreGratuit] = useState(false);
   const [evPourToi, setEvPourToi] = useState([]);
+  const [activite, setActivite] = useState([]);
+  const [chargementActivite, setChargementActivite] = useState(false);
+  const [nbAbonnements, setNbAbonnements] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -167,6 +170,47 @@ export default function ExplorerScreen({ navigation }) {
   useEffect(() => {
     if (profil?.interets?.length > 0 || profil?.centres_interet?.length > 0) chargerPourToi();
   }, [profil, positionUser]);
+
+  useEffect(() => {
+    if (onglet === 'activite' && profil?.id) chargerActivite();
+  }, [onglet, profil?.id]);
+
+  const chargerActivite = async () => {
+    if (!profil?.id) return;
+    setChargementActivite(true);
+    try {
+      const { data: abonnements } = await supabase.from('abonnements')
+        .select('suivi_id').eq('follower_id', profil.id);
+      const suivisIds = (abonnements || []).map(a => a.suivi_id);
+      setNbAbonnements(suivisIds.length);
+      if (suivisIds.length === 0) { setActivite([]); setChargementActivite(false); return; }
+
+      const [{ data: creations }, { data: joins }] = await Promise.all([
+        supabase.from('evenements')
+          .select('id, titre, lieu, categorie, created_at, auteur_id, profiles:auteur_id(id, prenom, avatar_url)')
+          .in('auteur_id', suivisIds).eq('suspendu', false)
+          .order('created_at', { ascending: false }).limit(20),
+        supabase.from('participations')
+          .select('created_at, user_id, evenement_id, profiles:user_id(id, prenom, avatar_url), evenements(id, titre, lieu, categorie)')
+          .in('user_id', suivisIds)
+          .order('created_at', { ascending: false }).limit(20),
+      ]);
+
+      const fusion = [
+        ...(creations || []).map(c => ({
+          _type: 'creation', _date: c.created_at, id: `c_${c.id}`,
+          auteur: c.profiles, evenement: { id: c.id, titre: c.titre, lieu: c.lieu, categorie: c.categorie },
+        })),
+        ...(joins || []).filter(j => j.evenements).map(j => ({
+          _type: 'participation', _date: j.created_at, id: `p_${j.evenement_id}_${j.user_id}`,
+          auteur: j.profiles, evenement: j.evenements,
+        })),
+      ].sort((a, b) => new Date(b._date) - new Date(a._date)).slice(0, 30);
+
+      setActivite(fusion);
+    } catch {}
+    setChargementActivite(false);
+  };
 
   const chargerPourToi = async () => {
     const interets = profil?.interets || profil?.centres_interet || [];
@@ -348,6 +392,7 @@ export default function ExplorerScreen({ navigation }) {
 
   const ONGLETS = [
     { key: 'pourToi',    label: '✨ Pour toi' },
+    { key: 'activite',   label: '🔔 Activité' },
     { key: 'lieux',      label: '🏛 Lieux' },
     { key: 'agenda',     label: '📅 Agenda' },
     { key: 'communaute', label: '👥 Communauté' },
@@ -471,6 +516,52 @@ export default function ExplorerScreen({ navigation }) {
           }
           contentContainerStyle={{ paddingBottom: 24 }}
           removeClippedSubviews maxToRenderPerBatch={10} windowSize={10} initialNumToRender={10}
+        />
+      )}
+
+      {/* ── ACTIVITÉ (abonnements) ── */}
+      {onglet === 'activite' && (
+        <FlatList
+          data={activite}
+          keyExtractor={item => item.id}
+          contentContainerStyle={{ padding: 16, gap: 10, flexGrow: 1 }}
+          refreshControl={<RefreshControl refreshing={chargementActivite} onRefresh={chargerActivite} tintColor="#aaa" />}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.activiteCard}
+              onPress={() => allerDetail(item.evenement)}
+              activeOpacity={0.7}
+            >
+              {item.auteur?.avatar_url ? (
+                <Image source={{ uri: item.auteur.avatar_url }} style={styles.activiteAvatar} />
+              ) : (
+                <View style={[styles.activiteAvatar, styles.activiteAvatarDefaut]}>
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>{(item.auteur?.prenom || '?')[0].toUpperCase()}</Text>
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#111', fontSize: t(13) }}>
+                  <Text style={{ fontWeight: '600' }}>{item.auteur?.prenom || 'Quelqu\'un'}</Text>
+                  {item._type === 'creation' ? ' a créé ' : ' participe à '}
+                  <Text style={{ fontWeight: '600' }}>{item.evenement?.titre}</Text>
+                </Text>
+                {item.evenement?.lieu && <Text style={{ color: '#aaa', fontSize: t(12), marginTop: 2 }}>{item.evenement.lieu}</Text>}
+              </View>
+              <Ionicons name={item._type === 'creation' ? 'add-circle-outline' : 'people-outline'} size={18} color="#2563EB" />
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            chargementActivite ? null : (
+              <View style={styles.vide}>
+                <Ionicons name="people-outline" size={38} color="#ddd" />
+                <Text style={{ color: '#aaa', fontSize: t(14), marginTop: 10, textAlign: 'center' }}>
+                  {nbAbonnements === 0
+                    ? 'Abonne-toi à des gens pour voir leur activité ici'
+                    : 'Rien de récent chez les personnes que tu suis'}
+                </Text>
+              </View>
+            )
+          }
         />
       )}
 
@@ -759,6 +850,9 @@ const styles = StyleSheet.create({
   filmAffiche: { width: 58, height: 86, borderRadius: 10, flexShrink: 0 },
   cinemaligne: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 9, paddingBottom: 2, borderTopWidth: 0.5, borderTopColor: 'rgba(0,0,0,0.05)' },
   vide: { alignItems: 'center', justifyContent: 'center', padding: 40, flex: 1, minHeight: 300 },
+  activiteCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 12, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
+  activiteAvatar: { width: 40, height: 40, borderRadius: 20 },
+  activiteAvatarDefaut: { backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
   videIcone: { width: 56, height: 56, borderRadius: 17, backgroundColor: '#f0f0ee', alignItems: 'center', justifyContent: 'center' },
   effacerBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#111', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
 });
