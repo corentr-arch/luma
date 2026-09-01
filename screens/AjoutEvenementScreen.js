@@ -99,8 +99,8 @@ export default function AjoutEvenementScreen({ navigation }) {
         titre: titre.trim(), description: description.trim() || null,
         lieu: lieu.trim(), latitude, longitude, categorie,
         date_evenement: date.toISOString(),
-        max: sansMax ? null : parseInt(maxParticipants) || null,
-        sans_max: sansMax, participants: 0,
+        max_participants: sansMax ? null : parseInt(maxParticipants) || null,
+        sans_max: sansMax, participants_count: 0,
         auteur_id: profil.id, suspendu: false,
       });
       if (error) { Alert.alert('Erreur', error.message); setChargement(false); return; }

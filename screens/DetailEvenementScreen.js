@@ -37,7 +37,7 @@ export default function DetailEvenementScreen({ route, navigation }) {
   const chargerDetails = async () => {
     if (!evenement?.id) return;
     try {
-      const { data } = await supabase.from('evenements').select('*, profiles:auteur_id(id, prenom, avatar_url, score_confiance)').eq('id', evenement.id).single();
+      const { data } = await supabase.from('evenements').select('*, participants:participants_count, max:max_participants, profiles:auteur_id(id, prenom, avatar_url, score_confiance)').eq('id', evenement.id).single();
       if (data) { setEvenement(data); if (data.profiles) setAuteur(data.profiles); }
     } catch {}
   };
@@ -64,13 +64,13 @@ export default function DetailEvenementScreen({ route, navigation }) {
     try {
       if (participation) {
         await supabase.from('participations').delete().eq('evenement_id', evenement.id).eq('user_id', profil.id);
-        await supabase.from('evenements').update({ participants: Math.max(0, (evenement.participants || 1) - 1) }).eq('id', evenement.id);
+        await supabase.from('evenements').update({ participants_count: Math.max(0, (evenement.participants || 1) - 1) }).eq('id', evenement.id);
         setParticipation(false);
         setEvenement(prev => ({ ...prev, participants: Math.max(0, (prev.participants || 1) - 1) }));
       } else {
         if (complet) { Alert.alert('Complet', 'Il n\'y a plus de places disponibles.'); setChargement(false); return; }
         await supabase.from('participations').insert({ evenement_id: evenement.id, user_id: profil.id });
-        await supabase.from('evenements').update({ participants: (evenement.participants || 0) + 1 }).eq('id', evenement.id);
+        await supabase.from('evenements').update({ participants_count: (evenement.participants || 0) + 1 }).eq('id', evenement.id);
         setParticipation(true);
         setEvenement(prev => ({ ...prev, participants: (prev.participants || 0) + 1 }));
         Alert.alert('Inscrit ! 🎉', 'Tu participeras à cet événement.');

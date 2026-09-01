@@ -58,8 +58,8 @@ export function EvenementsProvider({ children }) {
       const { data, error } = await supabase
         .from('evenements')
         .select(`
-          id, titre, description, lieu, adresse, latitude, longitude,
-          date_evenement, categorie, participants, max, sans_max,
+          id, titre, description, lieu, latitude, longitude,
+          date_evenement, categorie, participants:participants_count, max:max_participants, sans_max,
           type, auteur_id, suspendu, created_at,
           profiles:auteur_id(prenom, avatar_url)
         `)
@@ -100,9 +100,14 @@ export function EvenementsProvider({ children }) {
       .channel('evenements_live_v2')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'evenements' }, (payload) => {
         if (payload.eventType === 'INSERT' && !payload.new.suspendu) {
+          const nouveau = {
+            ...payload.new,
+            participants: payload.new.participants_count,
+            max: payload.new.max_participants,
+          };
           setEvenements(prev => {
-            if (prev.find(e => e.id === payload.new.id)) return prev;
-            return [...prev, payload.new].sort((a, b) => {
+            if (prev.find(e => e.id === nouveau.id)) return prev;
+            return [...prev, nouveau].sort((a, b) => {
               if (!a.date_evenement) return 1;
               if (!b.date_evenement) return -1;
               return new Date(a.date_evenement) - new Date(b.date_evenement);
@@ -112,7 +117,12 @@ export function EvenementsProvider({ children }) {
           if (payload.new.suspendu) {
             setEvenements(prev => prev.filter(e => e.id !== payload.new.id));
           } else {
-            setEvenements(prev => prev.map(e => e.id === payload.new.id ? { ...e, ...payload.new } : e));
+            const maj = {
+              ...payload.new,
+              participants: payload.new.participants_count,
+              max: payload.new.max_participants,
+            };
+            setEvenements(prev => prev.map(e => e.id === maj.id ? { ...e, ...maj } : e));
           }
         } else if (payload.eventType === 'DELETE') {
           setEvenements(prev => prev.filter(e => e.id !== payload.old.id));
