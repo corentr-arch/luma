@@ -9,6 +9,13 @@ import { supabase } from '../supabase';
 
 const { width } = Dimensions.get('window');
 
+const CATEGORIES_DISPONIBLES = [
+  'Sport', 'Musique', 'Apéro', 'Entraide', 'Art',
+  'Marché', 'Nature & Bien-être', 'Famille', 'Cours', 'Cinéma', 'Théâtre', 'Gaming',
+];
+
+const INTERETS_PAR_DEFAUT = ['Sport', 'Musique', 'Apéro'];
+
 const ETAPES = [
   {
     icone: 'map',
@@ -40,13 +47,20 @@ const ETAPES = [
   },
 ];
 
+const TOTAL_ETAPES = ETAPES.length + 1;
+
 export default function OnboardingScreen() {
   const [etapeActuelle, setEtapeActuelle] = useState(0);
   const [chargement, setChargement] = useState(false);
+  const [interets, setInterets] = useState(INTERETS_PAR_DEFAUT);
   const scrollRef = useRef(null);
 
+  const toggleInteret = (cat) => {
+    setInterets(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
+  };
+
   const allerEtapeSuivante = () => {
-    if (etapeActuelle < ETAPES.length - 1) {
+    if (etapeActuelle < TOTAL_ETAPES - 1) {
       const next = etapeActuelle + 1;
       setEtapeActuelle(next);
       scrollRef.current?.scrollTo({ x: next * width, animated: true });
@@ -61,13 +75,16 @@ export default function OnboardingScreen() {
       await Location.requestForegroundPermissionsAsync();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('profiles').update({ onboarding_vu: true }).eq('id', user.id);
+        await supabase.from('profiles').update({
+          onboarding_vu: true,
+          centres_interet: interets,
+        }).eq('id', user.id);
       }
     } catch {}
     setChargement(false);
   };
 
-  const etape = ETAPES[etapeActuelle];
+  const etape = ETAPES[etapeActuelle] || ETAPES[ETAPES.length - 1];
 
   return (
     <View style={styles.container}>
@@ -89,11 +106,34 @@ export default function OnboardingScreen() {
             <Text style={styles.slideDesc}>{e.desc}</Text>
           </View>
         ))}
+
+        <View style={styles.slide}>
+          <View style={[styles.slideIconeWrap, { backgroundColor: '#FEF3C7' }]}>
+            <Ionicons name="heart" size={52} color="#F59E0B" />
+          </View>
+          <Text style={styles.slideTitre}>Tes centres d'intérêt</Text>
+          <Text style={styles.slideDesc}>Pour te proposer des événements qui te ressemblent. Tu peux changer ça plus tard dans ton profil.</Text>
+          <View style={styles.interetsGrid}>
+            {CATEGORIES_DISPONIBLES.map((cat) => {
+              const actif = interets.includes(cat);
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  style={[styles.interetChip, actif && styles.interetChipActif]}
+                  onPress={() => toggleInteret(cat)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.interetChipTxt, actif && styles.interetChipTxtActif]}>{cat}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
       </ScrollView>
 
       {/* Indicateurs */}
       <View style={styles.indicateurs}>
-        {ETAPES.map((_, i) => (
+        {Array.from({ length: TOTAL_ETAPES }).map((_, i) => (
           <View
             key={i}
             style={[
@@ -114,16 +154,16 @@ export default function OnboardingScreen() {
           activeOpacity={0.85}
         >
           <Text style={styles.btnTxt}>
-            {etapeActuelle === ETAPES.length - 1 ? 'Commencer' : 'Suivant'}
+            {etapeActuelle === TOTAL_ETAPES - 1 ? 'Commencer' : 'Suivant'}
           </Text>
           <Ionicons
-            name={etapeActuelle === ETAPES.length - 1 ? 'checkmark' : 'arrow-forward'}
+            name={etapeActuelle === TOTAL_ETAPES - 1 ? 'checkmark' : 'arrow-forward'}
             size={18}
             color="#fff"
           />
         </TouchableOpacity>
 
-        {etapeActuelle < ETAPES.length - 1 && (
+        {etapeActuelle < TOTAL_ETAPES - 1 && (
           <TouchableOpacity onPress={terminer} style={styles.passerBtn}>
             <Text style={styles.passerTxt}>Passer</Text>
           </TouchableOpacity>
@@ -148,4 +188,9 @@ const styles = StyleSheet.create({
   btnTxt: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
   passerBtn: { alignItems: 'center', padding: 8 },
   passerTxt: { color: '#aaa', fontSize: 15, fontWeight: '500' },
+  interetsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 28 },
+  interetChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: '#F5F5F3', borderWidth: 1, borderColor: 'transparent' },
+  interetChipActif: { backgroundColor: '#111', borderColor: '#111' },
+  interetChipTxt: { fontSize: 13, fontWeight: '500', color: '#666' },
+  interetChipTxtActif: { color: '#fff' },
 });
