@@ -24,6 +24,7 @@ import DetailLieuScreen from './screens/DetailLieu';
 import ConversationScreen from './screens/ConversationScreen';
 import CompteScreen from './screens/CompteScreen';
 import ProfilPublicScreen from './screens/ProfilPublicScreen';
+import AbonnesScreen from './screens/AbonnesScreen';
 import CGUScreen from './screens/CGUScreen';
 import CreerStoryScreen from './screens/CreerStoryScreen';
 
@@ -258,6 +259,7 @@ function Navigation() {
             <Stack.Screen name="DetailLieu" component={DetailLieuScreen} />
             <Stack.Screen name="Conversation" component={ConversationScreen} />
             <Stack.Screen name="ProfilPublic" component={ProfilPublicScreen} />
+            <Stack.Screen name="Abonnes" component={AbonnesScreen} />
             <Stack.Screen name="CGU" component={CGUScreen} />
             <Stack.Screen
               name="CreerStory"

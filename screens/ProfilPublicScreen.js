@@ -20,6 +20,8 @@ export default function ProfilPublicScreen({ route, navigation }) {
   const [storyViewerVisible, setStoryViewerVisible] = useState(false);
   const [storyIndex, setStoryIndex] = useState(0);
   const [estMoi, setEstMoi] = useState(false);
+  const [estAbonne, setEstAbonne] = useState(false);
+  const [chargementAbonnement, setChargementAbonnement] = useState(false);
 
   useEffect(() => { chargerProfil(); }, [userId]);
 
@@ -29,15 +31,43 @@ export default function ProfilPublicScreen({ route, navigation }) {
       const { data: { user } } = await supabase.auth.getUser();
       setEstMoi(user?.id === userId);
       const [{ data: p }, { data: s }, { data: ev }] = await Promise.all([
-        supabase.from('profiles').select('id, prenom, handle, bio, avatar_url, arrondissement, centres_interet, score_confiance, created_at, is_organisateur').eq('id', userId).single(),
+        supabase.from('profiles').select('id, prenom, handle, bio, avatar_url, arrondissement, centres_interet, score_confiance, created_at, is_organisateur, nb_followers, nb_following').eq('id', userId).single(),
         supabase.from('stories').select('id, media_url, media_type, type, texte, adresse, created_at, expires_at, actif, nb_vues, nb_likes, latitude, longitude, profiles(id, prenom, avatar_url)').eq('user_id', userId).eq('actif', true).gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(20),
         supabase.from('evenements').select('id, titre, lieu, date_evenement, categorie, participants:participants_count, max:max_participants, sans_max').eq('auteur_id', userId).eq('suspendu', false).gte('date_evenement', new Date().toISOString()).order('date_evenement', { ascending: true }).limit(10),
       ]);
       if (p) setProfil(p);
       if (s) setStories(s);
       if (ev) setEvenements(ev);
+      if (user && user.id !== userId) {
+        const { data: abo } = await supabase.from('abonnements').select('id')
+          .eq('follower_id', user.id).eq('suivi_id', userId).maybeSingle();
+        setEstAbonne(!!abo);
+      }
     } catch (e) { console.error(e); }
     setChargement(false);
+  };
+
+  const toggleAbonnement = async () => {
+    if (!monProfil?.id || estMoi || chargementAbonnement) return;
+    setChargementAbonnement(true);
+    const etaitAbonne = estAbonne;
+    setEstAbonne(!etaitAbonne);
+    setProfil(prev => prev ? { ...prev, nb_followers: Math.max(0, (prev.nb_followers || 0) + (etaitAbonne ? -1 : 1)) } : prev);
+    try {
+      if (etaitAbonne) {
+        const { error } = await supabase.from('abonnements').delete()
+          .eq('follower_id', monProfil.id).eq('suivi_id', userId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('abonnements').insert({ follower_id: monProfil.id, suivi_id: userId });
+        if (error) throw error;
+      }
+    } catch {
+      setEstAbonne(etaitAbonne);
+      setProfil(prev => prev ? { ...prev, nb_followers: Math.max(0, (prev.nb_followers || 0) + (etaitAbonne ? 1 : -1)) } : prev);
+      Alert.alert('Erreur', 'Impossible de mettre à jour l\'abonnement');
+    }
+    setChargementAbonnement(false);
   };
 
   const ouvrirConversation = async () => {
@@ -125,6 +155,19 @@ export default function ProfilPublicScreen({ route, navigation }) {
           )}
           {profil.bio && <Text style={[styles.bio, { fontSize: t(13) }]}>{profil.bio}</Text>}
 
+          {/* Abonnés / Abonnements */}
+          <View style={styles.compteursRow}>
+            <TouchableOpacity style={styles.compteurItem} onPress={() => navigation.navigate('Abonnes', { userId, mode: 'followers', prenom: profil.prenom })}>
+              <Text style={[styles.compteurNb, { fontSize: t(16) }]}>{profil.nb_followers || 0}</Text>
+              <Text style={[styles.compteurLabel, { fontSize: t(12) }]}>Abonnés</Text>
+            </TouchableOpacity>
+            <View style={styles.compteurSep} />
+            <TouchableOpacity style={styles.compteurItem} onPress={() => navigation.navigate('Abonnes', { userId, mode: 'following', prenom: profil.prenom })}>
+              <Text style={[styles.compteurNb, { fontSize: t(16) }]}>{profil.nb_following || 0}</Text>
+              <Text style={[styles.compteurLabel, { fontSize: t(12) }]}>Abonnements</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Badges */}
           <View style={styles.badgesRow}>
             {profil.is_organisateur && (
@@ -151,10 +194,23 @@ export default function ProfilPublicScreen({ route, navigation }) {
 
           {/* Boutons action */}
           {!estMoi ? (
-            <TouchableOpacity style={styles.btnMessage} onPress={ouvrirConversation} activeOpacity={0.85}>
-              <Ionicons name="chatbubble-outline" size={16} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: t(14), fontWeight: '600' }}>Envoyer un message</Text>
-            </TouchableOpacity>
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                style={[styles.btnAbonner, estAbonne && styles.btnAbonnerActif]}
+                onPress={toggleAbonnement}
+                activeOpacity={0.85}
+                disabled={chargementAbonnement}
+              >
+                <Ionicons name={estAbonne ? 'checkmark' : 'add'} size={16} color={estAbonne ? '#111' : '#fff'} />
+                <Text style={{ color: estAbonne ? '#111' : '#fff', fontSize: t(14), fontWeight: '600' }}>
+                  {estAbonne ? 'Abonné' : 'Suivre'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnMessage, { flex: 1 }]} onPress={ouvrirConversation} activeOpacity={0.85}>
+                <Ionicons name="chatbubble-outline" size={16} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: t(14), fontWeight: '600' }}>Message</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <TouchableOpacity
               style={[styles.btnMessage, { backgroundColor: '#f0f0ee' }]}
@@ -293,7 +349,15 @@ const styles = StyleSheet.create({
   bio: { color: '#666', textAlign: 'center', marginTop: 8, lineHeight: 19, paddingHorizontal: 20 },
   badgesRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 10 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
-  btnMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#111', borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13, marginTop: 14 },
+  btnMessage: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#111', borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13, marginTop: 14 },
+  actionsRow: { flexDirection: 'row', gap: 10, marginTop: 14, alignSelf: 'stretch', paddingHorizontal: 4 },
+  btnAbonner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#2563EB', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13, borderWidth: 1.5, borderColor: '#2563EB' },
+  btnAbonnerActif: { backgroundColor: '#fff', borderColor: '#ddd' },
+  compteursRow: { flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 12 },
+  compteurItem: { alignItems: 'center' },
+  compteurNb: { fontWeight: '700', color: '#111' },
+  compteurLabel: { color: '#aaa', marginTop: 1 },
+  compteurSep: { width: 1, height: 24, backgroundColor: 'rgba(0,0,0,0.08)' },
   section: { paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.06)' },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   sectionIcone: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
