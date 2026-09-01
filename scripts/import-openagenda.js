@@ -20,25 +20,18 @@ const AGENDAS = [
   { uid: 55667788,  nom: 'Opéra de Paris',           categorie: 'Musique' },
   { uid: 99887766,  nom: 'Gaîté Lyrique',            categorie: 'Musique' },
   { uid: 44332211,  nom: 'Maison de la Radio',       categorie: 'Musique' },
-  { uid: 76126842,  nom: 'Cité des Sciences',        categorie: 'Culture' },
+  { uid: 76126842,  nom: 'Cité des Sciences',        categorie: 'Art' },
 ];
 
 // Recherches par mots-clés pour compléter
+// Ces requêtes servent uniquement à découvrir des agendas OpenAgenda
+// supplémentaires — la catégorie de chaque événement est ensuite déduite de
+// son propre contenu (titre/mots-clés), pas de la requête qui a trouvé l'agenda.
 const RECHERCHES = [
-  { q: 'concert paris',        categorie: 'Musique' },
-  { q: 'festival paris',       categorie: 'Musique' },
-  { q: 'exposition paris',     categorie: 'Art' },
-  { q: 'theatre paris',        categorie: 'Art' },
-  { q: 'spectacle paris',      categorie: 'Art' },
-  { q: 'comedie paris',        categorie: 'Art' },
-  { q: 'danse paris',          categorie: 'Art' },
-  { q: 'cinema paris',         categorie: 'Art' },
-  { q: 'jazz paris',           categorie: 'Musique' },
-  { q: 'rock paris',           categorie: 'Musique' },
-  { q: 'opera paris',          categorie: 'Musique' },
-  { q: 'musique classique paris', categorie: 'Musique' },
-  { q: 'sport competition paris', categorie: 'Sport' },
-  { q: 'esport gaming paris',  categorie: 'Musique' },
+  'concert paris', 'festival paris', 'exposition paris', 'theatre paris',
+  'spectacle paris', 'comedie paris', 'danse paris', 'cinema paris',
+  'jazz paris', 'rock paris', 'opera paris', 'musique classique paris',
+  'sport competition paris', 'esport gaming paris',
 ];
 
 // Bounding box stricte Paris + petite couronne
@@ -50,21 +43,32 @@ function estDansIDF(lat, lon) {
 }
 
 function mappingCategorie(keywords, titre, lieu) {
-  const tout = ([
+  const texteSignal = ([
     ...(Array.isArray(keywords) ? keywords.map(k => typeof k === 'string' ? k : k?.fr || '') : [String(keywords || '')]),
-    titre || '', lieu || ''
+    titre || ''
   ]).join(' ').toLowerCase();
 
-  if (tout.includes('gaming') || tout.includes('esport') || tout.includes('jeux video') || tout.includes('game')) return 'Musique';
-  if (tout.includes('concert') || tout.includes('musique') || tout.includes('jazz') || tout.includes('rock') || tout.includes('metal') || tout.includes('electro') || tout.includes('rap') || tout.includes('hip') || tout.includes('classique') || tout.includes('festival')) return 'Musique';
-  if (tout.includes('sport') || tout.includes('match') || tout.includes('tournoi') || tout.includes('competition') || tout.includes('marathon')) return 'Sport';
-  if (tout.includes('march') || tout.includes('brocante') || tout.includes('salon')) return 'Marché';
-  if (tout.includes('famille') || tout.includes('enfant') || tout.includes('kids')) return 'Famille';
-  if (tout.includes('nature') || tout.includes('jardin') || tout.includes('yoga') || tout.includes('meditation')) return 'Nature & Bien-être';
-  if (tout.includes('atelier') || tout.includes('cours') || tout.includes('formation') || tout.includes('conference')) return 'Cours';
-  if (tout.includes('solidarite') || tout.includes('benevol') || tout.includes('entraide')) return 'Entraide';
-  if (tout.includes('cinema') || tout.includes('film') || tout.includes('expo') || tout.includes('exposition') || tout.includes('art') || tout.includes('theatre') || tout.includes('danse') || tout.includes('spectacle') || tout.includes('opera')) return 'Art';
-  return 'Culture';
+  if (texteSignal.includes('gaming') || texteSignal.includes('esport') || texteSignal.includes('jeux video') || texteSignal.includes('game')) return 'Gaming';
+  if (texteSignal.includes('concert') || texteSignal.includes('musique') || texteSignal.includes('jazz') || texteSignal.includes('rock') || texteSignal.includes('metal') || texteSignal.includes('electro') || texteSignal.includes('rap') || texteSignal.includes('hip') || texteSignal.includes('classique') || texteSignal.includes('festival')) return 'Musique';
+  if (texteSignal.includes('cinema') || texteSignal.includes('film')) return 'Cinéma';
+  if (texteSignal.includes('theatre') || texteSignal.includes('danse') || texteSignal.includes('spectacle') || texteSignal.includes('opera') || texteSignal.includes('cirque') || texteSignal.includes('comedie')) return 'Théâtre';
+  if (texteSignal.includes('sport') || texteSignal.includes('match') || texteSignal.includes('tournoi') || texteSignal.includes('competition') || texteSignal.includes('marathon')) return 'Sport';
+  if (texteSignal.includes('march') || texteSignal.includes('brocante') || texteSignal.includes('salon')) return 'Marché';
+  if (texteSignal.includes('famille') || texteSignal.includes('enfant') || texteSignal.includes('kids')) return 'Famille';
+  if (texteSignal.includes('nature') || texteSignal.includes('jardin') || texteSignal.includes('yoga') || texteSignal.includes('meditation')) return 'Nature & Bien-être';
+  if (texteSignal.includes('atelier') || texteSignal.includes('cours') || texteSignal.includes('formation') || texteSignal.includes('conference')) return 'Cours';
+  if (texteSignal.includes('solidarite') || texteSignal.includes('benevol') || texteSignal.includes('entraide')) return 'Entraide';
+  if (texteSignal.includes('expo') || texteSignal.includes('exposition') || texteSignal.includes('art')) return 'Art';
+
+  // Le nom du lieu est un signal moins fiable (un "Théâtre" accueille aussi des
+  // concerts) : on ne s'y fie qu'en tout dernier recours, une fois le titre et
+  // les mots-clés épuisés.
+  const texteLieu = (lieu || '').toLowerCase();
+  if (texteLieu.includes('cinema')) return 'Cinéma';
+  if (texteLieu.includes('theatre') || texteLieu.includes('opera')) return 'Théâtre';
+  if (texteLieu.includes('stade') || texteLieu.includes('piscine')) return 'Sport';
+
+  return 'Art';
 }
 
 async function fetchAgenda(uid) {
@@ -203,14 +207,14 @@ async function main() {
 
   // ── 2. Recherche par mots-clés ──
   console.log('\n🔍 Recherche par mots-clés...');
-  for (const recherche of RECHERCHES) {
-    const agendas = await rechercherAgendas(recherche.q);
+  for (const q of RECHERCHES) {
+    const agendas = await rechercherAgendas(q);
     for (const agenda of agendas.slice(0, 3)) {
       if (!agenda.uid) continue;
-      const events = await fetchEvenementsAgenda(agenda.uid, recherche.categorie, agenda.title);
+      const events = await fetchEvenementsAgenda(agenda.uid, null, agenda.title);
       let ajouts = 0;
       for (const ev of events) {
-        const e = extraireEvenement(ev, recherche.categorie, agenda.title);
+        const e = extraireEvenement(ev, null, agenda.title);
         if (e && !ids.has(e.source_id)) { ids.add(e.source_id); tousLesEvenements.push(e); ajouts++; }
       }
       if (ajouts > 0) console.log(`   ✅ ${agenda.title} → ${ajouts} événements`);

@@ -24,23 +24,34 @@ function corrigerDate(dateStr) {
   } catch { return null; }
 }
 
-function mappingCategorie(tags, titre, description, lieu) {
-  const tout = [
-    ...(Array.isArray(tags) ? tags : [String(tags || '')]),
-    titre || '', description || '', lieu || '',
-  ].join(' ').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const REGLES_CATEGORIE = [
+  ['Gaming', /\b(esport|gaming|jeux.video|nintendo|playstation|xbox|twitch)\b/],
+  ['Cinéma', /\b(cinema|ugc|mk2|pathe|gaumont|louxor|film|projection|seance|cine)\b/],
+  ['Musique', /\b(concert|festival|jazz|blues|rock|metal|pop|electro|rap|rnb|hip.hop|classique|orchestre|symphonie|recital|chanson|musique|live)\b/],
+  ['Théâtre', /\b(theatre|comedie.francaise|odeon|piece.de.theatre|mise.en.scene|danse|ballet|opera|cirque|humour|stand.up|comedie)\b/],
+  ['Sport', /\b(sport|fitness|yoga|pilates|running|marathon|match|tournoi|natation|tennis|foot|rugby|basket|gym|zumba)\b/],
+  ['Nature & Bien-être', /\b(nature|jardin|jardinage|meditation|sophrologie|bien.etre|balade|foret|ecologie)\b/],
+  ['Famille', /\b(enfant|famille|kids|jeunesse|bebe|conte|animation.enfant|scolaire)\b/],
+  ['Marché', /\b(marche|brocante|vide.grenier|salon|foire|braderie|puces)\b/],
+  ['Entraide', /\b(solidarite|benevol|entraide|humanitaire|don|collecte|association)\b/],
+  ['Cours', /\b(conference|debat|atelier|workshop|masterclass|formation|cours|visite.guidee|lecture|livre|patrimoine)\b/],
+  ['Art', /\b(exposition|expo|galerie|vernissage|art|peinture|sculpture|photo|musee)\b/],
+];
 
-  if (tout.match(/\b(esport|gaming|jeux.video|nintendo|playstation|xbox|twitch)\b/)) return 'Gaming';
-  if (tout.match(/\b(cinema|ugc|mk2|pathe|gaumont|louxor|film|projection|seance|cine)\b/)) return 'Cinéma';
-  if (tout.match(/\b(theatre|comedie.francaise|odeon|piece.de.theatre|mise.en.scene|danse|ballet|opera|cirque|humour|stand.up|comedie)\b/)) return 'Théâtre';
-  if (tout.match(/\b(concert|festival|jazz|blues|rock|metal|pop|electro|rap|rnb|hip.hop|classique|orchestre|symphonie|chanson|musique|live)\b/)) return 'Musique';
-  if (tout.match(/\b(sport|fitness|yoga|pilates|running|marathon|match|tournoi|natation|tennis|foot|rugby|basket|gym|zumba)\b/)) return 'Sport';
-  if (tout.match(/\b(nature|jardin|jardinage|meditation|sophrologie|bien.etre|balade|foret|ecologie)\b/)) return 'Nature & Bien-être';
-  if (tout.match(/\b(enfant|famille|kids|jeunesse|bebe|conte|animation.enfant|scolaire)\b/)) return 'Famille';
-  if (tout.match(/\b(marche|brocante|vide.grenier|salon|foire|braderie|puces)\b/)) return 'Marché';
-  if (tout.match(/\b(solidarite|benevol|entraide|humanitaire|don|collecte|association)\b/)) return 'Entraide';
-  if (tout.match(/\b(conference|debat|atelier|workshop|masterclass|formation|cours|visite.guidee|lecture|livre|patrimoine)\b/)) return 'Cours';
-  if (tout.match(/\b(exposition|expo|galerie|vernissage|art|peinture|sculpture|photo|musee)\b/)) return 'Art';
+function normaliserTexte(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function mappingCategorie(tags, titre, description, lieu) {
+  const texteSignal = normaliserTexte([...(Array.isArray(tags) ? tags : [String(tags || '')]), titre || ''].join(' '));
+  for (const [cat, regex] of REGLES_CATEGORIE) if (regex.test(texteSignal)) return cat;
+
+  const texteDesc = normaliserTexte(description || '');
+  for (const [cat, regex] of REGLES_CATEGORIE) if (regex.test(texteDesc)) return cat;
+
+  const texteLieu = normaliserTexte(lieu || '');
+  for (const [cat, regex] of REGLES_CATEGORIE) if (regex.test(texteLieu)) return cat;
+
   return 'Art';
 }
 
@@ -128,6 +139,9 @@ async function main() {
         const lat = r.lat_lon?.lat || r.geo_point_2d?.lat;
         const lon = r.lat_lon?.lon || r.geo_point_2d?.lon;
         if (!lat || !lon) return null;
+        // Rejette les erreurs de géocodage évidentes (ex. coordonnées au Canada
+        // pour un événement censé être à Paris) : large marge autour de l'Île-de-France
+        if (lat < 47.5 || lat > 49.8 || lon < 0.5 || lon > 4.5) return null;
 
         const dateDebutCorrigee = corrigerDate(r.date_start);
         const dateFinCorrigee = corrigerDate(r.date_end);

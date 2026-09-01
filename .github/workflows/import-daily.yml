@@ -45,3 +45,9 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           FOOTBALL_TOKEN: ${{ secrets.FOOTBALL_TOKEN }}
         run: node scripts/import-football.js
+
+      - name: Dédupliquer les événements inter-sources
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/dedupliquer-evenements.js
