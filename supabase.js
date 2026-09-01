@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SUPABASE_URL = 'https://jsvnuvjntlxalbdufgbu.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impzdm51dmludGx4YWxiZHVmZ2J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYwMTI5MjcsImV4cCI6MjA2MTU4ODkyN30.sWpHBDvBq5DI_LNjRFaMkFBRjQwM6oU_KvXrSEa8JeY';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impzdm51dmpudGx4YWxiZHVmZ2J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NzA1OTUsImV4cCI6MjA5NjE0NjU5NX0.LAHyyvzwOH4GOjJdoiQDM4u7CGtcsc5zXbA5jOMVnTQ';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -16,12 +16,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       let dernierErreur;
       for (let i = 0; i < 3; i++) {
         try {
-          const response = await fetch(url, {
-            ...options,
-            headers: {
-              ...options.headers,
-            },
-          });
+          const response = await fetch(url, options);
           return response;
         } catch (e) {
           dernierErreur = e;
@@ -30,9 +25,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       }
       throw dernierErreur;
     },
-  },
-  realtime: {
-    params: { eventsPerSecond: 10 },
   },
 });
 
