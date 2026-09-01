@@ -4,10 +4,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp, CATEGORIES, formatDateParis } from '../AppContext';
+import ReactionsRapides from '../components/ReactionsRapides';
 
 export default function DetailEvenementOfficiel({ route, navigation }) {
   const { evenement } = route.params;
-  const { facteurTexte } = useApp();
+  const { facteurTexte, profil } = useApp();
   const t = (s) => s * facteurTexte;
 
   const cat = CATEGORIES[evenement?.categorie] || { forte: '#2563EB', claire: '#DBEAFE', texte: '#1E40AF', icone: 'calendar-outline' };
@@ -117,6 +118,11 @@ export default function DetailEvenementOfficiel({ route, navigation }) {
             )}
           </View>
 
+          {/* Réactions rapides */}
+          <View style={styles.reactionsWrap}>
+            <ReactionsRapides evenementOfficielId={evenement.id} profilId={profil?.id} t={t} />
+          </View>
+
           {/* Description */}
           {evenement.description && (
             <View style={styles.descCard}>
@@ -170,6 +176,7 @@ const styles = StyleSheet.create({
   tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   titre: { fontWeight: '700', color: '#111', letterSpacing: -0.5, marginBottom: 16, lineHeight: 30 },
   infosCard: { backgroundColor: '#fff', borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
+  reactionsWrap: { marginBottom: 12 },
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   infoIcone: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   infoLabel: { fontWeight: '700', color: '#aaa', letterSpacing: 0.06, marginBottom: 3 },

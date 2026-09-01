@@ -8,6 +8,7 @@ import { useApp } from '../AppContext';
 import { useEvenements } from '../EvenementsContext';
 import { supabase } from '../supabase';
 import BoutonSignaler from '../components/BoutonSignaler';
+import ReactionsRapides from '../components/ReactionsRapides';
 
 export default function DetailEvenementScreen({ route, navigation }) {
   const { evenement: evenementParam } = route.params;
@@ -228,6 +229,11 @@ export default function DetailEvenementScreen({ route, navigation }) {
             </View>
           </View>
 
+          {/* Réactions rapides */}
+          <View style={styles.reactionsWrap}>
+            <ReactionsRapides evenementId={evenement.id} profilId={profil?.id} t={t} />
+          </View>
+
           {/* Auteur */}
           {auteur && (
             <TouchableOpacity
@@ -392,6 +398,7 @@ const styles = StyleSheet.create({
   infoVal: { fontWeight: '500', color: '#111' },
   placesJauge: { height: 4, width: 60, borderRadius: 2, overflow: 'hidden', alignSelf: 'center' },
   placesRempli: { height: '100%', borderRadius: 2 },
+  reactionsWrap: { marginBottom: 12 },
   auteurCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 12, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
   auteurAvatar: { width: 42, height: 42, borderRadius: 21, flexShrink: 0 },
   auteurAvatarDefaut: { backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
