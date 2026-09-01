@@ -123,6 +123,19 @@ $$;
 grant execute on function creer_notification(uuid, text, text, text, bigint, bigint) to authenticated;
 
 -- ============================================================
+-- 2ter) Le propriétaire d'une story doit pouvoir lire qui l'a vue
+--       (liste "Vu par"). Une politique supplémentaire s'ajoute à celles
+--       existantes (OR), ne restreint rien de ce qui marchait déjà.
+-- ============================================================
+alter table stories_vues enable row level security;
+
+drop policy if exists "Auteur de la story lit ses vues" on stories_vues;
+create policy "Auteur de la story lit ses vues" on stories_vues
+  for select using (
+    exists (select 1 from stories where stories.id = stories_vues.story_id and stories.user_id = auth.uid())
+  );
+
+-- ============================================================
 -- 3) Stories à la une (highlights) — juste un flag pour l'UI.
 --    La désactivation automatique (edge function nettoyer-stories,
 --    hors dépôt) se base sur expires_at : pour survivre au nettoyage

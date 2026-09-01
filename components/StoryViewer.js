@@ -1,7 +1,7 @@
 ﻿import {
   View, Text, Image, TouchableOpacity, StyleSheet, Dimensions,
   Animated, TextInput, KeyboardAvoidingView, Platform,
-  StatusBar, SafeAreaView, Alert,
+  StatusBar, SafeAreaView, Alert, Modal, FlatList,
 } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +25,9 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
   const [nbLikes, setNbLikes] = useState(0);
   const [auteurProfils, setAuteurProfils] = useState({});
   const [dureVideo, setDureVideo] = useState(DUREE_IMAGE);
+  const [showViewers, setShowViewers] = useState(false);
+  const [viewers, setViewers] = useState([]);
+  const [chargementViewers, setChargementViewers] = useState(false);
   const progression = useRef(new Animated.Value(0)).current;
   const animRef = useRef(null);
   const tapDebut = useRef(0);
@@ -116,6 +119,20 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
         .eq('story_id', story.id).eq('user_id', profil.id).maybeSingle();
       setLiked(!!data);
     } catch {}
+  };
+
+  const ouvrirViewers = async () => {
+    if (!story) return;
+    setPause(true);
+    setShowViewers(true);
+    setChargementViewers(true);
+    try {
+      const { data } = await supabase.from('stories_vues')
+        .select('user_id, created_at, profiles:user_id(id, prenom, avatar_url)')
+        .eq('story_id', story.id).order('created_at', { ascending: false });
+      setViewers((data || []).filter(v => v.profiles));
+    } catch { setViewers([]); }
+    setChargementViewers(false);
   };
 
   const marquerVue = async () => {
@@ -437,13 +454,64 @@ export default function StoryViewer({ stories: storiesInitiales, indexDepart = 0
                 <Ionicons name="map" size={24} color="#fff" />
               </TouchableOpacity>
             )}
-            <View style={styles.actionBtn}>
-              <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.6)" />
-              <Text style={styles.actionCount}>{story.nb_vues || 0}</Text>
-            </View>
+            {estMonStory ? (
+              <TouchableOpacity style={styles.actionBtn} onPress={ouvrirViewers}>
+                <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.6)" />
+                <Text style={styles.actionCount}>{story.nb_vues || 0}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.actionBtn}>
+                <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.6)" />
+                <Text style={styles.actionCount}>{story.nb_vues || 0}</Text>
+              </View>
+            )}
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* ✅ Modal "Vu par" */}
+      <Modal visible={showViewers} transparent animationType="slide" onRequestClose={() => { setShowViewers(false); setPause(false); }}>
+        <View style={styles.viewersOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => { setShowViewers(false); setPause(false); }} />
+          <View style={styles.viewersSheet}>
+            <View style={styles.viewersHandle} />
+            <View style={styles.viewersHeader}>
+              <Text style={styles.viewersTitre}>Vu par {viewers.length > 0 ? viewers.length : ''}</Text>
+              <TouchableOpacity onPress={() => { setShowViewers(false); setPause(false); }} style={styles.viewersCloseBtn}>
+                <Ionicons name="close" size={16} color="#888" />
+              </TouchableOpacity>
+            </View>
+            {chargementViewers ? (
+              <View style={{ padding: 30, alignItems: 'center' }}>
+                <Text style={{ color: '#888' }}>Chargement...</Text>
+              </View>
+            ) : viewers.length === 0 ? (
+              <View style={{ padding: 30, alignItems: 'center' }}>
+                <Ionicons name="eye-off-outline" size={28} color="#ccc" />
+                <Text style={{ color: '#888', marginTop: 8 }}>Personne n'a encore vu cette story</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={viewers}
+                keyExtractor={item => item.user_id}
+                style={{ maxHeight: 360 }}
+                renderItem={({ item }) => (
+                  <View style={styles.viewerLigne}>
+                    {item.profiles.avatar_url ? (
+                      <Image source={{ uri: item.profiles.avatar_url }} style={styles.viewerAvatar} />
+                    ) : (
+                      <View style={[styles.viewerAvatar, styles.viewerAvatarDefaut]}>
+                        <Text style={{ color: '#fff', fontWeight: '600' }}>{(item.profiles.prenom || '?')[0].toUpperCase()}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.viewerNom}>{item.profiles.prenom || 'Utilisateur'}</Text>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -478,4 +546,14 @@ const styles = StyleSheet.create({
   reponseInput: { flex: 1, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, color: '#fff', fontSize: 14 },
   envoyerBtn: { padding: 8 },
   annulerBtn: { padding: 8 },
+  viewersOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  viewersSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 24 },
+  viewersHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB', alignSelf: 'center', marginTop: 12, marginBottom: 4 },
+  viewersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.06)' },
+  viewersTitre: { fontSize: 16, fontWeight: '600', color: '#111' },
+  viewersCloseBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0ee', alignItems: 'center', justifyContent: 'center' },
+  viewerLigne: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
+  viewerAvatar: { width: 38, height: 38, borderRadius: 19 },
+  viewerAvatarDefaut: { backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
+  viewerNom: { fontSize: 14, color: '#111', fontWeight: '500' },
 });
